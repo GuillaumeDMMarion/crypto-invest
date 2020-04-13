@@ -6,7 +6,7 @@ Api-s used are:
 -   BINANCE for order execution
 -   AWS for data storage
 -   AWS for model management
--   AWS for order initiation. 
+-   AWS for order initiation
 
 
 Main functionalities
