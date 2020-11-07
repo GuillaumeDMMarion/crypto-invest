@@ -1,16 +1,16 @@
 '''
 Objects for collections of assets.
 '''
-# invest
+# local
 from cryptoast.kline import Kline
 # other
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
 from requests.exceptions import ReadTimeout
 from binance.client import Client
-from tqdm import tqdm
 from datetime import datetime
-import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
+from tqdm import tqdm
 
 class Klines(dict):
   '''
@@ -20,7 +20,7 @@ class Klines(dict):
     klines (list): A collection of multiple Kline objects. 
   '''
   def __init__(self, klines):
-    return super(Klines, self).__init__(zip([kline.asset for kline in klines], klines))
+    super(Klines, self).__init__(zip([kline.asset for kline in klines], klines))
 
   def __repr__(self):
     repr_l = [str(k)+": <class 'Kline'>" for k,v in self.sorteditems()]
@@ -81,11 +81,8 @@ class KLMngr(Klines):
     url_scheme (type): Function for the desired url-scheme. Defaults to str.
     root_path (str): Root path of the stored data.
   '''
-
-  def __init__(self, quotes_or_assets=None, klines=None, client=Client('key', 'secret'), url_scheme=str,
+  def __init__(self, quotes_or_assets=None, klines=None, client=None, url_scheme=str,
                root_path='data-bucket/'):
-    '''
-    '''
     self._quotes_or_assets = quotes_or_assets
     self._client = client
     self._url_scheme = url_scheme
@@ -100,6 +97,10 @@ class KLMngr(Klines):
         self._add_dynamic_fct(col)
     except IndexError:
       pass
+
+  @property
+  def quotes_or_assets(self):
+    return self._quotes_or_assets
 
   @property
   def client(self):
@@ -184,13 +185,16 @@ class KLMngr(Klines):
     fig.add_trace(go.Scatter(x=bmp.index, y=bmp.values, name='Bull Market Percentage'))
     fig.show()
 
-  def update(self):
+  def update(self, verbose=1):
     '''
+    Args:
+      verbose (int): Controls verbosity.
+
     Returns:
       None. Updates for all initialized assets the data and for all assets existing on the remote server the meta-data.
     '''
     self._update_info()
-    self._update_data()
+    self._update_data(verbose=verbose)
 
   def _update_info(self):
     '''
@@ -212,16 +216,21 @@ class KLMngr(Klines):
     path_or_buf = self._open(self._root_path+'metadata/info.csv', mode='w')
     self._info.to_csv(path_or_buf=path_or_buf, sep=';')
 
-  def _update_data(self):
+  def _update_data(self, verbose):
     '''
+    Args:
+      verbose (int): Controls verbosity.
+
     Returns:
       None. Updates for all initialized assets the data and writes it to csv.
     '''
     self.from_quotes_or_assets(self.sortedkeys())
-    for asset in tqdm(self.sortedkeys()):
+    progress_func = tqdm if verbose==1 else list
+    for asset in progress_func(self.sortedkeys()):
       while True:
         try:
-          self[asset].update(self.client)
+          verbose_asset = verbose==2
+          self[asset].update(self.client, store=True, verbose=verbose_asset)
           break
         except (TimeoutError, ReadTimeout):
           pass

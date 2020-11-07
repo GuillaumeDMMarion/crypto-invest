@@ -108,3 +108,5 @@ venv.bak/
 /notebooks/Exploration.ipynb
 tmp.py
 /data-bucket
+*.backup.*
+*.vscode
