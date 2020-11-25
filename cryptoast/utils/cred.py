@@ -1,17 +1,20 @@
-'''
+"""
 Objects for credentials management.
-'''
+"""
 # other
 import os
 
+
+
+
 class Cred(object):
-  '''
+  """
   Simple placeholder for credential management.
 
   Args:
     apis (list): All apis for which to keep key- and secret-values of.
     key_secret_names (list): The names of the key- and secret-values.
-  '''
+  """
   def __init__(self, apis=None, key_secret_names=('KEY', 'SECRET')):
     self._apis = apis
     self._key_secret_names = key_secret_names

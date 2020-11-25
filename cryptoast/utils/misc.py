@@ -1,5 +1,10 @@
+"""
+Miscellaneous helper objects.
+"""
 import glob
 import os
+
+
 
 
 def get_all_files(path, ext=None):
