@@ -176,7 +176,8 @@ class Backtest():
 
 
 class SingleAssetEnv(gym.Env):
-    def __init__(self, klmngr, assets, backtest=None, window=24, datetimes=None, randomize_start=True, allow_gaps=False):
+    def __init__(self, klmngr, assets, backtest=None, window=24, datetimes=None, randomize_start=True, allow_gaps=False,
+                 episode_steps=-1):
         super(SingleAssetEnv, self).__init__()
         self.klmngr = klmngr
         self.assets = assets
@@ -185,9 +186,11 @@ class SingleAssetEnv(gym.Env):
         self.datetimes =  SingleAssetEnv.get_datetimes(datetimes)
         self.randomize_start = randomize_start
         self.allow_gaps = allow_gaps
+        self.episode_steps = episode_steps
         self.kline = None
         self.action_space = gym.spaces.Discrete(3)
         self.observation_space = gym.spaces.Box(low=-1, high=1, shape=(self.window*6+1,), dtype=np.float32)
+        self.current_step = 0
     
     @staticmethod
     def get_datetimes(datetimes):
@@ -204,8 +207,8 @@ class SingleAssetEnv(gym.Env):
         metric_values = self.kline.metrics.loc[:timestamp, :].fillna(-1).values[-window:]
         periodic_values = np.array(self.backtest.history)
         nr_of_transactions = (-1+2*(periodic_values[:-1, 1] != periodic_values[1:, 1]).sum()/(window-1)).reshape(-1, 1)
-        observation_raw = np.hstack((close_values, metric_values)) # periodic_values # close_values
-        scaler = MinMaxScaler((-1, 1)) # MinMaxScaler((0, 1))
+        observation_raw = np.hstack((close_values, metric_values, periodic_values)) # 
+        scaler = MinMaxScaler((-1, 1)) # 
         observation = scaler.fit_transform(observation_raw).T.ravel() # observation_raw.T.ravel().reshape(-1,1)
         return np.append(observation, nr_of_transactions)
 
@@ -252,6 +255,7 @@ class SingleAssetEnv(gym.Env):
     
     def step(self, action):
         assert(action in [0, 1, 2])
+        self.current_step += 1
         self.backtest.step(order=(action - 1) * 999)
         timestamp = self.backtest.position['timestamp']
         observation = self.get_observation(timestamp = timestamp,
@@ -260,9 +264,8 @@ class SingleAssetEnv(gym.Env):
         done = (timestamp == self.kline.index.max()-timedelta(hours=1) or
                 (not(self.allow_gaps) and 
                  any([timestamp + timedelta(hours=1) not in self.kline.index,
-                      timestamp + timedelta(hours=2) not in self.kline.index])
-                )
-               )
+                      timestamp + timedelta(hours=2) not in self.kline.index])) or
+                (self.current_step == self.episode_steps))
         info = self.get_info()
         return observation, reward, done, info
 

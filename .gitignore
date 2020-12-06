@@ -110,3 +110,4 @@ tmp.py
 /data-bucket
 *.backup.*
 *.vscode
+/models/logs
