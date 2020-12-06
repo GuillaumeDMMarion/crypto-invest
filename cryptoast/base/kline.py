@@ -14,50 +14,14 @@ from datetime import datetime
 
 class _Kline(pd.DataFrame):
   """
-  Pandas DataFrame subclass with custom metadata and constructor.
+  Pandas DataFrame subclass with custom metadata and constructor for Kline class.
   """
-  _metadata = ['_asset', 'asset', '_metrics', 'metrics', '_signals', 'signals', '_url_scheme', 'url_scheme', 
-               '_root_path', 'root_path', '_store_metrics', 'store_metrics', '_store_signals', 'store_signals',
-               '_cached', 'cached', '_info', 'info',
-               'name', 'start', 'end', '_open', '_get_stored', 'update', 'get_remote', 'store', 'plot']
+  _metadata = ['_asset', '_metrics', '_signals', '_url_scheme', '_root_path', '_store_metrics', '_store_signals',
+               '_cached', '_info']
+
   @property
   def _constructor(self):
       return _Kline
-
-class Kline(_Kline):
-  """
-  Object for asset-specific data storage, retrieval, and analysis.
-
-  Args:
-    asset (str): String of the official base-quote acronym.
-    url_scheme (type): Function for the desired url-scheme. Defaults to str.
-    root_path (str): Root path of the stored data.
-    store_metrics (iterable): List of metrics to store.
-    store_signals (iterable): List of signals to store.
-    info (pd.Series): Inherited when initialized from KLMngr.
-  """
-  _cols = ['open_time', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'quote_asset_volume', 'number_of_trades',
-           'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'n/a']
-
-  def __init__(self, asset, url_scheme=str, root_path='data-bucket/data/', store_metrics=[], store_signals=[], info=None):
-    self._asset = asset
-    self._url_scheme = url_scheme
-    self._root_path = root_path
-    self._store_metrics = store_metrics
-    self._store_signals = store_signals
-    self._cached = False
-    self._metrics = Metrics(self, store_metrics=self._store_metrics)
-    self._signals = Signals(self, store_signals=self._store_signals)
-    self._info = info
-
-  def __getattr__(self, attr_name):
-    if self._cached==False:
-      self._cached=True
-      data=self._get_stored()
-      kwargs=dict()
-      kwargs['columns'] = self._cols
-      super(Kline, self).__init__(data=data, dtype=np.float64, **kwargs)
-    return super(Kline, self).__getattr__(attr_name)
 
   @property
   def asset(self):
@@ -69,11 +33,11 @@ class Kline(_Kline):
   
   @property
   def metrics(self):
-    return self._metrics
+    return self._metrics.loc[self.index, :]
 
   @property
   def signals(self):
-    return self._signals
+    return self._signals.loc[self.index, :]
 
   @property
   def url_scheme(self):
@@ -217,13 +181,53 @@ class Kline(_Kline):
     fig.update_yaxes(range=[y_min, y_max])
     fig.show()
 
+class Kline(_Kline):
+  """
+  Object for asset-specific data storage, retrieval, and analysis.
 
-class Metrics(pd.DataFrame):
+  Args:
+    asset (str): String of the official base-quote acronym.
+    url_scheme (type): Function for the desired url-scheme. Defaults to str.
+    root_path (str): Root path of the stored data.
+    store_metrics (iterable): List of metrics to store.
+    store_signals (iterable): List of signals to store.
+    info (pd.Series): Inherited when initialized from KLMngr.
+  """
+  _cols = ['open_time', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'quote_asset_volume',
+           'number_of_trades', 'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'n/a']
+
+  def __init__(self, asset, url_scheme=str, root_path='data-bucket/data/', store_metrics=[], store_signals=[], info=None):
+    self._asset = asset
+    self._url_scheme = url_scheme
+    self._root_path = root_path
+    self._store_metrics = store_metrics
+    self._store_signals = store_signals
+    self._cached = False
+    self._metrics = Metrics(self, store_metrics=self._store_metrics)
+    self._signals = Signals(self, store_signals=self._store_signals)
+    self._info = info
+
+  def __getattr__(self, attr_name):
+    if self._cached==False:
+      self._cached=True
+      data=self._get_stored()
+      kwargs=dict()
+      kwargs['columns'] = self._cols
+      super(Kline, self).__init__(data=data, dtype=np.float64, **kwargs)
+    return super(Kline, self).__getattr__(attr_name)
+
+
+
+
+class _Metrics(pd.DataFrame):
+  """
+  Pandas DataFrame subclass with custom metadata and constructor for Metrics class.
+  """
   _metadata = ['_kline', '_cached', '_store_metrics']
-  def __init__(self, kline, store_metrics):
-    self._kline=kline
-    self._cached=False
-    self._store_metrics=store_metrics
+
+  @property
+  def _constructor(self):
+      return _Metrics
 
   @property
   def kline(self):
@@ -236,19 +240,6 @@ class Metrics(pd.DataFrame):
   @property
   def store_metrics(self):
     return self._store_metrics
-
-  def __getattr__(self, attr_name):
-    if self._cached==False:
-      self._cached=True
-      data=pd.DataFrame(data=[], index=self.kline.index) 
-      super(Metrics, self).__init__(data=data)
-      for metric in self.store_metrics:
-        try:
-          fun, args = metric
-        except ValueError:
-          fun = metric
-        self.compute(fun, True, *args)
-    return super(Metrics, self).__getattr__(attr_name)
 
   def compute(self, metric, append=False, *args, **kwargs):
     fun = metric
@@ -295,14 +286,44 @@ class Metrics(pd.DataFrame):
     hma = Metrics._compute_metric_WMA(kline=[], data=(2*wma_n2-wma_n), window=int(np.sqrt(window)))
     return hma
 
+class Metrics(_Metrics):
+  """
+  Object for asset-specific metrics manipulations.
 
-class Signals(pd.DataFrame):
-  _metadata = ['_kline', '_cached', '_store_signals']
-
-  def __init__(self, kline, store_signals):
+  Args:
+    kline (Kline): Kline from which to get info to compute metrics.
+    store_metrics (list): Metric names to store in memory.
+  """
+  def __init__(self, kline, store_metrics):
     self._kline=kline
     self._cached=False
-    self._store_signals = store_signals
+    self._store_metrics=store_metrics
+
+  def __getattr__(self, attr_name):
+    if self._cached==False:
+      self._cached=True
+      data=pd.DataFrame(data=[], index=self.kline.index) 
+      super(Metrics, self).__init__(data=data)
+      for metric in self.store_metrics:
+        try:
+          fun, args = metric
+        except ValueError:
+          fun = metric
+        self.compute(fun, True, *args)
+    return super(Metrics, self).__getattr__(attr_name)
+
+
+
+
+class _Signals(pd.DataFrame):
+  """
+  Pandas DataFrame subclass with custom metadata and constructor for Signals class.
+  """
+  _metadata = ['_kline', '_cached', '_store_signals']
+
+  @property
+  def _constructor(self):
+      return _Signals
 
   @property
   def kline(self):
@@ -315,19 +336,6 @@ class Signals(pd.DataFrame):
   @property
   def store_signals(self):
     return self._store_signals
-
-  def __getattr__(self, attr_name):
-    if self._cached==False:
-      self._cached=True
-      data=pd.DataFrame(data=[], index=self.kline.index)
-      super(Signals, self).__init__(data=data)
-      for signal in self.store_signals:
-        try:
-          fun, args = signal
-        except ValueError:
-          fun = signal
-        self.compute(fun, True, *args)
-    return super(Signals, self).__getattr__(attr_name)
 
   def compute(self, signal, append=False, *args, **kwargs):
     fun = signal
@@ -360,3 +368,29 @@ class Signals(pd.DataFrame):
   def _compute_signal_PRICECROSS(kline, metric='SMA_50'):
     pricecross = kline.close > getattr(kline.metrics, metric)
     return pricecross
+
+class Signals(_Signals):
+  """
+  Object for asset-specific signals manipulations.
+
+  Args:
+    kline (Kline): Kline from which to get info to compute signals.
+    store_signals (list): Signal names to store in memory.
+  """
+  def __init__(self, kline, store_signals):
+    self._kline=kline
+    self._cached=False
+    self._store_signals = store_signals
+
+  def __getattr__(self, attr_name):
+    if self._cached==False:
+      self._cached=True
+      data=pd.DataFrame(data=[], index=self.kline.index)
+      super(Signals, self).__init__(data=data)
+      for signal in self.store_signals:
+        try:
+          fun, args = signal
+        except ValueError:
+          fun = signal
+        self.compute(fun, True, *args)
+    return super(Signals, self).__getattr__(attr_name)
