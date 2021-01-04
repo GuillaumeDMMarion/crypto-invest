@@ -1,4 +1,4 @@
-name: cryptoast-tf
+name: cryptoast
 channels:
   - defaults
   - conda-forge

@@ -105,7 +105,6 @@ venv.bak/
 
 # Local stuff
 /documents
-/notebooks/Exploration.ipynb
 tmp.py
 /data-bucket
 *.backup.*

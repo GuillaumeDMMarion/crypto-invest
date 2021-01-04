@@ -178,7 +178,11 @@ class Backtest():
 class SingleAssetEnv(gym.Env):
     def __init__(self, klmngr, assets, backtest=None, window=24, datetimes=None, randomize_start=True, allow_gaps=False,
                  episode_steps=-1):
-        super(SingleAssetEnv, self).__init__()
+        super().__init__()
+
+        self.action_space = gym.spaces.Discrete(3)
+        self.observation_space = gym.spaces.Box(low=-2, high=2, shape=(window*6+1,), dtype=np.float32)
+
         self.klmngr = klmngr
         self.assets = assets
         self.backtest = Backtest() if backtest is None else backtest
@@ -187,10 +191,8 @@ class SingleAssetEnv(gym.Env):
         self.randomize_start = randomize_start
         self.allow_gaps = allow_gaps
         self.episode_steps = episode_steps
-        self.kline = None
-        self.action_space = gym.spaces.Discrete(3)
-        self.observation_space = gym.spaces.Box(low=-1, high=1, shape=(self.window*6+1,), dtype=np.float32)
-        self.current_step = 0
+
+        self.reset() # sets backtest, kline, scaler and current_step
     
     @staticmethod
     def get_datetimes(datetimes):
@@ -206,10 +208,26 @@ class SingleAssetEnv(gym.Env):
         close_values = self.kline.loc[:timestamp, :].close.values[-window:].reshape(-1, 1)
         metric_values = self.kline.metrics.loc[:timestamp, :].fillna(-1).values[-window:]
         periodic_values = np.array(self.backtest.history)
+        observation_raw = np.hstack((close_values, metric_values)) # periodic_values
+        if self.current_step % 100 == 0: # self.current_step == 0:
+            # Needs:
+            # - Observation data which is similarly scaled accross assets 
+            # - Observation data which is similarly scaled accross periods
+            # - Robust to not only historic outliers but also to future outliers (see options 4) 
+            # Options:
+            # 1) Fit on all historic data and transform observations
+            # 2) Fit on pre-episode historic data and transform observations
+            # 3) Fit on subset (e.g. 200 ticks) of pre-episode historic data and transform observations
+            # 4) Fit on 3, 2 or 1 + forecasted data and transform observations
+            scaler_history = 5000
+            hist_close_values = self.kline.loc[:timestamp, :].close.values[-scaler_history:].reshape(-1, 1)
+            hist_metric_values = self.kline.metrics.loc[:timestamp, :].fillna(-1).values[-scaler_history:]
+            # hist_periodic_values = np.array(self.backtest.history)
+            hist_observation_raw = np.hstack((hist_close_values, hist_metric_values)) # hist_periodic_values
+            scaler = StandardScaler() #MinMaxScaler((-1, 1))
+            self.scaler = scaler.fit(hist_observation_raw)
+        observation = self.scaler.transform(observation_raw).T.ravel() # observation_raw.T.ravel().reshape(-1,1)
         nr_of_transactions = (-1+2*(periodic_values[:-1, 1] != periodic_values[1:, 1]).sum()/(window-1)).reshape(-1, 1)
-        observation_raw = np.hstack((close_values, metric_values, periodic_values)) # 
-        scaler = MinMaxScaler((-1, 1)) # 
-        observation = scaler.fit_transform(observation_raw).T.ravel() # observation_raw.T.ravel().reshape(-1,1)
         return np.append(observation, nr_of_transactions)
 
     def get_reward(self):
@@ -224,6 +242,7 @@ class SingleAssetEnv(gym.Env):
                 previous_timestamp -= timedelta(hours=1)
         value_t1 = self.backtest._periodic[timestamp]['value']
         reward = (value_t1-value_t0)/value_t0
+        reward = -0.01 if reward == 0 else reward
         return reward
 
     def get_info(self):
@@ -248,6 +267,8 @@ class SingleAssetEnv(gym.Env):
         else:
             index = 0+self.window
             timestamp = kline.index[index]
+        self.current_step = 0
+        self.scaler = None
         self.kline = kline
         self.backtest.from_kline(kline, start_index=index)
         observation = self.get_observation(timestamp=timestamp, window=self.window)
