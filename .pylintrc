@@ -1,0 +1,5 @@
+[MESSAGES CONTROL]
+disable=arguments-differ,
+        invalid-overridden-method,
+        invalid-name,
+        unnecessary-lambda,

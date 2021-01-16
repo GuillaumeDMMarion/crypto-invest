@@ -32,8 +32,8 @@ class Backtest():
         self.start_index = start_index
         self.init_assets = init_assets
         self.init_cash = init_cash
-        self.commission = commission
-        self.slippage_pct = slippage_pct
+        self.commission = min(commission, 1)
+        self.slippage_pct = min(slippage_pct, 1)
         self.slippage_steps = slippage_steps
         self.memory = memory
         if kline is not None:
@@ -181,7 +181,7 @@ class SingleAssetEnv(gym.Env):
         super().__init__()
 
         self.action_space = gym.spaces.Discrete(3)
-        self.observation_space = gym.spaces.Box(low=-2, high=2, shape=(window*6+1,), dtype=np.float32)
+        self.observation_space = gym.spaces.Box(low=-3, high=3, shape=(window*8,), dtype=np.float32)
 
         self.klmngr = klmngr
         self.assets = assets
@@ -207,9 +207,10 @@ class SingleAssetEnv(gym.Env):
     def get_observation(self, timestamp, window):
         close_values = self.kline.loc[:timestamp, :].close.values[-window:].reshape(-1, 1)
         metric_values = self.kline.metrics.loc[:timestamp, :].fillna(-1).values[-window:]
-        periodic_values = np.array(self.backtest.history)
+        periodic_values = np.array(self.backtest.history)[:, :2]
         observation_raw = np.hstack((close_values, metric_values)) # periodic_values
-        if self.current_step % 100 == 0: # self.current_step == 0:
+        if self.current_step % 720 == 0: # 720 == 24 * 30 # self.current_step == 0:
+            scaler = StandardScaler() #MinMaxScaler((-1, 1))
             # Needs:
             # - Observation data which is similarly scaled accross assets 
             # - Observation data which is similarly scaled accross periods
@@ -221,14 +222,31 @@ class SingleAssetEnv(gym.Env):
             # 4) Fit on 3, 2 or 1 + forecasted data and transform observations
             scaler_history = 5000
             hist_close_values = self.kline.loc[:timestamp, :].close.values[-scaler_history:].reshape(-1, 1)
+            '''
             hist_metric_values = self.kline.metrics.loc[:timestamp, :].fillna(-1).values[-scaler_history:]
-            # hist_periodic_values = np.array(self.backtest.history)
-            hist_observation_raw = np.hstack((hist_close_values, hist_metric_values)) # hist_periodic_values
-            scaler = StandardScaler() #MinMaxScaler((-1, 1))
-            self.scaler = scaler.fit(hist_observation_raw)
-        observation = self.scaler.transform(observation_raw).T.ravel() # observation_raw.T.ravel().reshape(-1,1)
-        nr_of_transactions = (-1+2*(periodic_values[:-1, 1] != periodic_values[1:, 1]).sum()/(window-1)).reshape(-1, 1)
-        return np.append(observation, nr_of_transactions)
+            hist_periodic_values = self.backtest.periodic.loc[:timestamp, :].values[-scaler_history:, :2]
+            hist_periodic_values = hist_periodic_values[~(hist_periodic_values==0).all(axis=1)]
+            if hist_periodic_values.shape[0] != hist_metric_values.shape[0]:
+                # try:
+                #     stepx = self.backtest.stepx(orders=np.random.randint(-10, 10, size=10))[0]
+                # except:
+                #     stepx = self.backtest.stepx(orders=np.random.randint(-10, 10, size=1))[0]
+                # rand_periodic_values = pd.DataFrame(stepx).T.values
+                # shape = hist_metric_values.shape[0]
+                # hist_periodic_values_rep = np.vstack([periodic_values]*(int(shape/2/periodic_values.shape[0])+1))
+                # rand_periodic_values_rep = np.vstack([rand_periodic_values]*(int(shape/2/10)+1))
+                # hist_periodic_values = np.vstack([hist_periodic_values_rep, rand_periodic_values_rep])[-shape:]
+                shape_0 = hist_metric_values.shape[0]
+                # hist_periodic_values = np.vstack([periodic_values]*(int(shape/periodic_values.shape[0])+1))[-shape:]
+                nans = np.full((shape_0, 2), np.nan)
+                hist_periodic_values = np.vstack([nans, hist_periodic_values])[-shape_0:]
+            hist_observation_raw = np.hstack((hist_close_values, hist_metric_values, hist_periodic_values))
+            '''
+            self.scaler = scaler.fit(hist_close_values)
+        observation = np.hstack([self.scaler.fit_transform(observation_raw[:, [_]]) for _ in range(6)]) # self.scaler.transform(observation_raw).T.ravel()
+        # nr_of_transactions = (-1+2*sum(periodic_values[:-1, 1] != periodic_values[1:, 1])/(window-1)).reshape(-1, 1)
+        transactions_history = np.hstack([0, 0] + [(periodic_values[:-1, _] != periodic_values[1:, _]).astype(int) for _ in [0, 1]])
+        return np.append(observation.T.flatten(), transactions_history)
 
     def get_reward(self):
         # future_periodic = pd.DataFrame(self.backtest.stepx(n=1)[0]).T
@@ -242,7 +260,7 @@ class SingleAssetEnv(gym.Env):
                 previous_timestamp -= timedelta(hours=1)
         value_t1 = self.backtest._periodic[timestamp]['value']
         reward = (value_t1-value_t0)/value_t0
-        reward = -0.01 if reward == 0 else reward
+        reward = reward-1 if reward <= 0 else 1+reward
         return reward
 
     def get_info(self):
