@@ -181,7 +181,8 @@ class SingleAssetEnv(gym.Env):
         super().__init__()
 
         self.action_space = gym.spaces.Discrete(3)
-        self.observation_space = gym.spaces.Box(low=-3, high=3, shape=(window*8,), dtype=np.float32)
+        self.obs_cols = len(klmngr._store_metrics)+1
+        self.observation_space = gym.spaces.Box(low=-3, high=3, shape=(window*(self.obs_cols+2),), dtype=np.float32)
 
         self.klmngr = klmngr
         self.assets = assets
@@ -243,7 +244,7 @@ class SingleAssetEnv(gym.Env):
             hist_observation_raw = np.hstack((hist_close_values, hist_metric_values, hist_periodic_values))
             '''
             self.scaler = scaler.fit(hist_close_values)
-        observation = np.hstack([self.scaler.fit_transform(observation_raw[:, [_]]) for _ in range(6)]) # self.scaler.transform(observation_raw).T.ravel()
+        observation = np.hstack([self.scaler.fit_transform(observation_raw[:, [_]]) for _ in range(self.obs_cols)]) # self.scaler.transform(observation_raw).T.ravel()
         # nr_of_transactions = (-1+2*sum(periodic_values[:-1, 1] != periodic_values[1:, 1])/(window-1)).reshape(-1, 1)
         transactions_history = np.hstack([0, 0] + [(periodic_values[:-1, _] != periodic_values[1:, _]).astype(int) for _ in [0, 1]])
         return np.append(observation.T.flatten(), transactions_history)
