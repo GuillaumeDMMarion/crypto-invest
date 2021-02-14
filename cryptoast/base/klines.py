@@ -22,7 +22,10 @@ class Klines(dict):
     """
     def __init__(self, klines=None):
         klines = {} if klines is None else klines
-        super(Klines, self).__init__(zip([kline.asset for kline in klines], klines))
+        if isinstance(klines, (dict, type(Klines))):
+            super(Klines, self).__init__(klines)
+        else:
+            super(Klines, self).__init__(zip([kline.asset for kline in klines], klines))
 
     def __repr__(self):
         repr_l = [str(k)+": <class 'Kline'>" for k,v in self.sorteditems()]
@@ -182,27 +185,28 @@ class KLMngr(Klines):
             return assets_match
         return [asset for asset in self.info.index.values if self.info.loc[asset, 'quote'] in quotes_or_assets]
 
-    def get_bmp(self):
+    def get_bmp(self, components=False):
         """
         Returns:
             (pd.DataFrame) Bull-market percentage for all the initialized assets.
         """
-        date_range = pd.date_range('2017-01-01',datetime.today().date(), freq='D')
+        date_range = pd.date_range('2017-01-01 00:00:00', self.info.last_update.dropna().max(), freq='H')
         df_bmp = pd.DataFrame(data=[], index=date_range)
         assets = self.sortedkeys()
         for asset in assets:
             avg_asset = self[asset].signals.mean(axis=1)#>0
-            df_bmp.loc[:,asset] = avg_asset
-        df_bmp.dropna(axis=0, how='all', inplace=True)
-        bmp = df_bmp.mean(axis=1)
+            df_bmp.loc[avg_asset.index.round('H'), asset] = avg_asset
+        bmp = df_bmp.dropna(axis=0, how='all')
+        if not components:
+            bmp = bmp.mean(axis=1)
         return bmp
 
-    def plot_bmp(self, fig=None):
+    def plot_bmp(self, bmp=None, fig=None):
         """
         Returns:
             (plotly.graph_objects.Figure) Graph of the bull-market percentage for all the initialized assets.
         """
-        bmp = self.get_bmp()
+        bmp = self.get_bmp() if bmp is None else bmp
         fig = go.Figure() if fig is None else fig
         fig.add_trace(go.Scatter(x=bmp.index, y=bmp.values, name='Bull Market Percentage'))
         fig.show()
