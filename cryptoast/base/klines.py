@@ -103,7 +103,7 @@ class KLMngr(Klines):
         elif klines is not None:
             self.from_klines(klines)
         try:
-            for col in self.listedvalues()[0].columns:
+            for col in (self.listedvalues()[0].columns.tolist())+['metrics', 'signals']:
                 self._add_dynamic_fct(col)
         except IndexError:
             pass
@@ -292,14 +292,12 @@ class KLMngr(Klines):
             self.update_info()
 
     def _add_dynamic_fct(self, col):
-        def dynamic_fct(index=-1, group_fun=np.mean):
-            if isinstance(index, int):
-                group = lambda x: x
-            else:
-                group = lambda x: group_fun(x)
-            return dict([(asset, group(kline.loc[:, col].iloc[index])) for asset, kline in self.sorteditems()])
-        dynamic_fct.__doc__ = """Args:\n    index (int/slice): Index or slice of the line(s) to include.\n    group_fun
-         (function): Function to apply.\n\nReturns:\n    group_fun aggregate of {} over the indicated index for all
+        def dynamic_fct(index=-1, func=np.mean):
+            group = lambda x: func(x)
+            return dict([(asset, group(getattr(kline, col).iloc[index])) for asset, kline in self.sorteditems()])
+        dynamic_fct.__doc__ = """Args:\n    index (int/slice): Index or slice of the line(s) to include.
+            func (function): Function to apply.\n\nReturns:
+            func aggregate of {} over the indicated index for all
           assets.""".format(col)
         dynamic_fct.__name__ = '{}'.format(col)
         setattr(self, dynamic_fct.__name__, dynamic_fct)
