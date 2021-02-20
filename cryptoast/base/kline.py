@@ -245,8 +245,8 @@ class Kline(_Kline):
 
     def __getattr__(self, attr_name):
         if not self._cached:
-            self._cached=True
             data=self._get_stored()
+            self._cached=True
             kwargs=dict()
             kwargs['columns'] = self._cols
             super(Kline, self).__init__(data=data, dtype=np.float64, **kwargs)
