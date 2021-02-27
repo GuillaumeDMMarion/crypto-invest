@@ -230,8 +230,8 @@ class Kline(_Kline):
     _cols = ['open_time', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'quote_asset_volume',
                      'number_of_trades', 'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'n/a']
 
-    def __init__(self, asset, url_scheme=str, root_path='data-bucket/data/', store_metrics=None, store_signals=None,
-                 info=None):
+    def __init__(self, asset, data=None, url_scheme=str, root_path='data-bucket/data/', store_metrics=None,
+                 store_signals=None, info=None):
         self._asset = asset
         self._url_scheme = url_scheme
         self._root_path = root_path
@@ -241,6 +241,11 @@ class Kline(_Kline):
         self._metrics = Metrics(self, store_metrics=self.store_metrics)
         self._signals = Signals(self, store_signals=self.store_signals)
         self._info = info
+        if data is not None:
+            self._cached=True
+            kwargs=dict()
+            kwargs['columns'] = self._cols
+            super(Kline, self).__init__(data=data, dtype=np.float64, **kwargs)
         # super().__init__()
 
     def __getattr__(self, attr_name):
@@ -251,6 +256,13 @@ class Kline(_Kline):
             kwargs['columns'] = self._cols
             super(Kline, self).__init__(data=data, dtype=np.float64, **kwargs)
         return super(Kline, self).__getattr__(attr_name)
+
+    def resample(self, *args, **kwargs):
+        """Resample with mean.
+        """
+        data = super(Kline, self).resample(*args, **kwargs).mean().copy()
+        return Kline(asset=self.asset, data=data, url_scheme=self._url_scheme, root_path=self._root_path,
+                     store_metrics=self._store_metrics, store_signals=self._store_signals, info=self._info)
 
 
 
