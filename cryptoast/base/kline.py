@@ -257,10 +257,13 @@ class Kline(_Kline):
             super(Kline, self).__init__(data=data, dtype=np.float64, **kwargs)
         return super(Kline, self).__getattr__(attr_name)
 
-    def resample(self, *args, **kwargs):
-        """Resample with mean.
+    def resample(self, rule='D', method='mean', axis=0, closed=None, label=None, convention='start', kind=None,
+                 loffset=None, base=None, on=None, level=None, origin='start_day', offset=None):
+        """Resample.
         """
-        data = super(Kline, self).resample(*args, **kwargs).mean().copy()
+        data = getattr(super(Kline, self).resample(rule=rule, axis=axis, closed=closed, label=label, on=on,
+                                                   convention=convention, kind=kind, loffset=loffset, base=base,
+                                                   level=level, origin=origin, offset=offset), method)()
         return Kline(asset=self.asset, data=data, url_scheme=self._url_scheme, root_path=self._root_path,
                      store_metrics=self._store_metrics, store_signals=self._store_signals, info=self._info)
 
