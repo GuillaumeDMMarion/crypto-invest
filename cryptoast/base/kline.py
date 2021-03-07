@@ -145,10 +145,8 @@ class _Kline(pd.DataFrame):
             self.store()
         setattr(self, '_metrics', Metrics(self, store_metrics=self.store_metrics))
         setattr(self, '_signals', Signals(self, store_signals=self.store_signals))
-        # self._metrics = Metrics(self, store_metrics=self.store_metrics)
-        # self._signals = Signals(self, store_signals=self.store_signals)
 
-    def get_remote(self, client, start_datetime): # end_datetime=None
+    def get_remote(self, client, start_datetime):
         """
         Args:
             client: Connection client to the crypto exchange.
@@ -159,9 +157,6 @@ class _Kline(pd.DataFrame):
             (pandas.DataFrame): Dataframe of the asset's remote data.
         """
         start_timestamp = int(start_datetime.timestamp()*1000)
-        # if end_datetime is None:
-        #     end_datetime = pd.Timestamp.utcnow()
-        # end_timestamp = int(end_datetime.timestamp()*1000)
         klines = client.get_historical_klines(symbol=self.asset, interval=client.KLINE_INTERVAL_1HOUR,
                                               start_str=start_timestamp, # end_str=end_timestamp,
                                               limit=999999999)
@@ -191,25 +186,20 @@ class _Kline(pd.DataFrame):
             None. Plots the assets "open-high-low-close" data in candlestick style,
             overlayed with the desired metrics/signals.
         """
-        signals = [] if signals is None else signals
-        metrics = [] if metrics is None else metrics
-        y_min, y_max = np.percentile(self.open[-days*24:], [0,100])
-        # colors = ['rgb(0, 11, 24)','rgb(0, 23, 45)','rgb(0, 38, 77)','rgb(2, 56, 110)','rgb(0, 73, 141)',
-        #           'rgb(0, 82, 162)']
-        # colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22',
-        #           '#17becf']
-        colors = ["#f94144", "#f3722c", "#f8961e", "#f9844a", "#f9c74f", "#90be6d", "#43aa8b", "#4d908e", "#577590",
-                  "#277da1"]
-        # ohlc = self.loc[:,['open','high','low','close']]
+        hours = days*24
         fig = go.Figure() if fig is None else fig
-        fig.add_trace(go.Candlestick(x=self.index[-days*24:], open=self.open[-days*24:], high=self.high[-days*24:],
-                                     low=self.low[-days*24:], close=self.close[-days*24:], name=self.name))
+        signals, metrics = [([] if s_or_m is None else s_or_m) for s_or_m in zip(signals, metrics)]
+        colors = ["#f94144", "#f3722c", "#f8961e", "#f9844a", "#f9c74f", "#90be6d", "#43aa8b", "#4d908e",
+                  "#577590", "#277da1"]
+        y_min, y_max = np.percentile(self.open[-hours:], [0,100])
+        fig.add_trace(go.Candlestick(x=self.index[-hours:], open=self.open[-hours:], high=self.high[-hours:],
+                                     low=self.low[-hours:], close=self.close[-hours:], name=self.name))
         for i, metric in enumerate(metrics):
             color_index = int(i/len(metrics)*len(colors))
-            fig.add_trace(go.Scatter(x=self.index[-days*24:], y=self.metrics.loc[:, metric][-days*24:], name=metric,
+            fig.add_trace(go.Scatter(x=self.index[-hours:], y=self.metrics.loc[:, metric][-hours:], name=metric,
                                      line=dict(color=colors[color_index])))
         for signal in signals:
-            fig.add_trace(go.Scatter(x=self.index[-days*24:], y=np.where(self.signals.loc[:,signal][-days*24:],y_max,0),
+            fig.add_trace(go.Scatter(x=self.index[-hours:], y=np.where(self.signals.loc[:,signal][-hours:],y_max,0),
                                      mode='none', fill='tozeroy', fillcolor='rgba(60,220,100,0.2)', name=signal))
         fig.update_layout(xaxis_rangeslider_visible=rangeslider)
         fig.update_yaxes(range=[y_min, y_max])
@@ -230,7 +220,7 @@ class Kline(_Kline):
     _cols = ['open_time', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'quote_asset_volume',
                      'number_of_trades', 'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'n/a']
 
-    def __init__(self, asset, data=None, url_scheme=str, root_path='data-bucket/data/', store_metrics=None,
+    def __init__(self, asset, data=None, url_scheme=str, root_path='data/', store_metrics=None,
                  store_signals=None, info=None):
         self._asset = asset
         self._url_scheme = url_scheme
@@ -246,7 +236,6 @@ class Kline(_Kline):
             kwargs=dict()
             kwargs['columns'] = self._cols
             super(Kline, self).__init__(data=data, dtype=np.float64, **kwargs)
-        # super().__init__()
 
     def __getattr__(self, attr_name):
         if not self._cached:

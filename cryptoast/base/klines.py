@@ -89,6 +89,10 @@ class KLMngr(Klines):
         store_metrics (iterable): List of metrics to store.
         store_signals (iterable): List of signals to store.
     """
+    _metadata_path = 'metadata/info.csv'
+    _info_cols = ['symbol', 'base', 'quote', 'status', 'minPrice', 'maxPrice', 'tickSize', 'minQty', 'maxQty',
+                  'stepSize']
+
     def __init__(self, quotes_or_assets=None, klines=None, client=None, url_scheme=str, root_path='data-bucket/',
                              store_metrics=None, store_signals=None):
         self._quotes_or_assets = quotes_or_assets
@@ -107,7 +111,6 @@ class KLMngr(Klines):
                 self._add_dynamic_fct(col)
         except IndexError:
             pass
-        # super().__init__()
 
     @property
     def quotes_or_assets(self):
@@ -181,7 +184,7 @@ class KLMngr(Klines):
                          assets from the meta-data on the remote server.
         """
         assets_match = [asset for asset in self.info.index.values if asset in quotes_or_assets]
-        if len(assets_match)>0:
+        if len(assets_match) > 0:
             return assets_match
         return [asset for asset in self.info.index.values if self.info.loc[asset, 'quote'] in quotes_or_assets]
 
@@ -194,7 +197,7 @@ class KLMngr(Klines):
         df_bmp = pd.DataFrame(data=[], index=date_range)
         assets = self.sortedkeys()
         for asset in assets:
-            avg_asset = self[asset].signals.mean(axis=1)#>0
+            avg_asset = self[asset].signals.mean(axis=1)
             df_bmp.loc[avg_asset.index.round('H'), asset] = avg_asset
         bmp = df_bmp.dropna(axis=0, how='all')
         if not components:
@@ -244,14 +247,12 @@ class KLMngr(Klines):
         exchange_info = self.client.get_exchange_info()
         symbols_info = exchange_info['symbols']
         symbols_info_parsed = KLMngr._parse_symbols_info(symbols_info)
-        columns = ['symbol', 'base', 'quote', 'status', 'minPrice', 'maxPrice', 'tickSize', 'minQty', 'maxQty',
-                   'stepSize']
-        new_info = pd.DataFrame(symbols_info_parsed, columns=columns).set_index('symbol')
-        new_info.loc[:, 'last_update'] = None
+        new_info = pd.DataFrame(symbols_info_parsed, columns=self._info_cols).set_index('symbol')
+        new_info.loc[:, 'last_update'] = pd.Series(dtype='<M8[ns]')
         both_new_and_old = set(new_info.index) & set(self.info.index)
         new_info.loc[both_new_and_old, 'last_update'] = self.info.loc[both_new_and_old, 'last_update']
         setattr(self, '_info', new_info)
-        path_or_buf = self._open(self._root_path+'metadata/info.csv', mode='w')
+        path_or_buf = self._open(self._root_path+self._metadata_path, mode='w')
         self._info.to_csv(path_or_buf=path_or_buf, sep=';')
 
     def update_data(self, verbose, sleep):
@@ -274,7 +275,7 @@ class KLMngr(Klines):
                 except (TimeoutError, ReadTimeout):
                     pass
             self._info.loc[asset,'last_update'] = self[asset].index[-1]
-            path_or_buf = self._open(self._root_path+'metadata/info.csv', mode='w')
+            path_or_buf = self._open(self._root_path+self._metadata_path, mode='w')
             self._info.to_csv(path_or_buf=path_or_buf, sep=';')
 
     def _get_info(self):
@@ -283,12 +284,11 @@ class KLMngr(Klines):
             None. Reads info if it is present. Updates it if not.
         """
         try:
-            filepath_or_buffer = self._open(self._root_path+'metadata/info.csv', mode='r')
-            self._info = pd.read_csv(filepath_or_buffer=filepath_or_buffer, sep=';', index_col=0)
+            filepath_or_buffer = self._open(self._root_path+self._metadata_path, mode='r')
+            self._info = pd.read_csv(filepath_or_buffer=filepath_or_buffer, sep=';', index_col=0,
+                                     parse_dates=['last_update'])
         except FileNotFoundError:
-            columns = ['symbol', 'base', 'quote', 'status', 'minPrice', 'maxPrice', 'tickSize', 'minQty', 'maxQty',
-                       'stepSize']
-            self._info = pd.DataFrame([], columns=columns)
+            self._info = pd.DataFrame([], columns=self._info_cols)
             self.update_info()
 
     def _add_dynamic_fct(self, col):
