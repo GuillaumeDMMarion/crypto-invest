@@ -118,35 +118,7 @@ class _Kline(pd.DataFrame):
             stored_df = None
         return stored_df
 
-    def update(self, client, store=False, verbose=False, sleep=1):
-        """
-        Args:
-            client: Connection client to the crypto exchange.
-            store (bool): If True, overwrites the stored data. Else, overwrites only the data in memory.
-            verbose (bool): Controls verbosity.
-            sleep (int): Sleep interval between update ticks.
-
-        Returns:
-            None. Fetches up-to-date data on the crypto exchange, updates self, and stores it if indicated.
-        """
-        today = datetime.utcnow()
-        today_ts = pd.Timestamp(year=today.year, month=today.month, day=today.day, hour=today.hour)
-        while self.index.max() != today_ts:
-            start_from_index = self.index.max()
-            start_from_index = (pd.Timestamp(year=2017, month=1, day=1, hour=0, tz='UTC') if pd.isnull(start_from_index)
-                                else start_from_index)
-            remote_df = self.get_remote(client=client, start_datetime=start_from_index)
-            for index in remote_df.index:
-                if verbose:
-                    print(self.name, index)
-                self.loc[index,:] = remote_df.loc[index,:]
-            time.sleep(sleep)
-        if store:
-            self.store()
-        setattr(self, '_metrics', Metrics(self, store_metrics=self.store_metrics))
-        setattr(self, '_signals', Signals(self, store_signals=self.store_signals))
-
-    def get_remote(self, client, start_datetime):
+    def _get_remote(self, client, start_datetime):
         """
         Args:
             client: Connection client to the crypto exchange.
@@ -165,6 +137,34 @@ class _Kline(pd.DataFrame):
         remote_df = pd.DataFrame(data=klines, columns=self._cols, index=datetimes, dtype=np.float64)
         return remote_df
 
+    def update(self, client, store=False, verbose=False, sleep=1):
+        """
+        Args:
+            client: Connection client to the crypto exchange.
+            store (bool): If True, overwrites the stored data. Else, overwrites only the data in memory.
+            verbose (bool): Controls verbosity.
+            sleep (int): Sleep interval between update ticks.
+
+        Returns:
+            None. Fetches up-to-date data on the crypto exchange, updates self, and stores it if indicated.
+        """
+        today = datetime.utcnow()
+        today_ts = pd.Timestamp(year=today.year, month=today.month, day=today.day, hour=today.hour)
+        while self.index.max() != today_ts:
+            start_from_index = self.index.max()
+            start_from_index = (pd.Timestamp(year=2017, month=1, day=1, hour=0, tz='UTC') if pd.isnull(start_from_index)
+                                else start_from_index)
+            remote_df = self._get_remote(client=client, start_datetime=start_from_index)
+            for index in remote_df.index:
+                if verbose:
+                    print(self.name, index)
+                self.loc[index,:] = remote_df.loc[index,:]
+            time.sleep(sleep)
+        if store:
+            self.store()
+        setattr(self, '_metrics', Metrics(self, store_metrics=self.store_metrics))
+        setattr(self, '_signals', Signals(self, store_signals=self.store_signals))
+
     def store(self):
         """
         Returns:
@@ -173,10 +173,10 @@ class _Kline(pd.DataFrame):
         path_or_buf = self._open(self.root_path+self.asset+'.csv', mode='w')
         self.to_csv(path_or_buf=path_or_buf, sep=';')
 
-    def plot(self, days=180, signals=None, metrics=None, rangeslider=False, fig=None):
+    def plot(self, size=180, signals=None, metrics=None, rangeslider=False, fig=None):
         """
         Args:
-            days (int): The number of days in the past for which to plot the desired graph.
+            size (int): The number of ticks in the past for which to plot the desired graph.
             signals (list): List of signals to plot.
             metrics (list): List of metrics to plot.
             rangeslides (bool): Whether to plot a rangeslider or not.
@@ -186,20 +186,19 @@ class _Kline(pd.DataFrame):
             None. Plots the assets "open-high-low-close" data in candlestick style,
             overlayed with the desired metrics/signals.
         """
-        hours = days*24
         fig = go.Figure() if fig is None else fig
-        signals, metrics = [([] if s_or_m is None else s_or_m) for s_or_m in zip(signals, metrics)]
+        signals, metrics = [([] if s_or_m is None else s_or_m) for s_or_m in (signals, metrics)]
         colors = ["#f94144", "#f3722c", "#f8961e", "#f9844a", "#f9c74f", "#90be6d", "#43aa8b", "#4d908e",
                   "#577590", "#277da1"]
-        y_min, y_max = np.percentile(self.open[-hours:], [0,100])
-        fig.add_trace(go.Candlestick(x=self.index[-hours:], open=self.open[-hours:], high=self.high[-hours:],
-                                     low=self.low[-hours:], close=self.close[-hours:], name=self.name))
+        y_min, y_max = np.percentile(self.open[-size:], [0,100])
+        fig.add_trace(go.Candlestick(x=self.index[-size:], open=self.open[-size:], high=self.high[-size:],
+                                     low=self.low[-size:], close=self.close[-size:], name=self.name))
         for i, metric in enumerate(metrics):
             color_index = int(i/len(metrics)*len(colors))
-            fig.add_trace(go.Scatter(x=self.index[-hours:], y=self.metrics.loc[:, metric][-hours:], name=metric,
+            fig.add_trace(go.Scatter(x=self.index[-size:], y=self.metrics.loc[:, metric][-size:], name=metric,
                                      line=dict(color=colors[color_index])))
         for signal in signals:
-            fig.add_trace(go.Scatter(x=self.index[-hours:], y=np.where(self.signals.loc[:,signal][-hours:],y_max,0),
+            fig.add_trace(go.Scatter(x=self.index[-size:], y=np.where(self.signals.loc[:,signal][-size:],y_max,0),
                                      mode='none', fill='tozeroy', fillcolor='rgba(60,220,100,0.2)', name=signal))
         fig.update_layout(xaxis_rangeslider_visible=rangeslider)
         fig.update_yaxes(range=[y_min, y_max])
@@ -246,17 +245,24 @@ class Kline(_Kline):
             super(Kline, self).__init__(data=data, dtype=np.float64, **kwargs)
         return super(Kline, self).__getattr__(attr_name)
 
-    def resample(self, rule='D', method='mean', axis=0, closed=None, label=None, convention='start', kind=None,
+    @property
+    def daily(self):
+        """Daily resample.
+        """
+        return self.resample(rule='D')
+
+    def resample(self, rule, axis=0, closed=None, label=None, convention='start', kind=None,
                  loffset=None, base=None, on=None, level=None, origin='start_day', offset=None):
         """Resample.
         """
+        agg_dict = {'open_time': 'first', 'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last',
+                    'volume': 'sum', 'close_time': 'last', 'quote_asset_volume': 'sum', 'number_of_trades': 'sum',
+                    'taker_buy_base_asset_volume': 'sum', 'taker_buy_quote_asset_volume': 'sum', 'n/a': 'mean'}
         data = getattr(super(Kline, self).resample(rule=rule, axis=axis, closed=closed, label=label, on=on,
                                                    convention=convention, kind=kind, loffset=loffset, base=base,
-                                                   level=level, origin=origin, offset=offset), method)()
+                                                   level=level, origin=origin, offset=offset), 'agg')(agg_dict)
         return Kline(asset=self.asset, data=data, url_scheme=self._url_scheme, root_path=self._root_path,
                      store_metrics=self._store_metrics, store_signals=self._store_signals, info=self._info)
-
-
 
 
 class _Metrics(pd.DataFrame):
