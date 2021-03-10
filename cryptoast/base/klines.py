@@ -91,9 +91,9 @@ class KLMngr(Klines):
     """
     _metadata_path = 'metadata/info.csv'
     _info_cols = ['symbol', 'base', 'quote', 'status', 'minPrice', 'maxPrice', 'tickSize', 'minQty', 'maxQty',
-                  'stepSize']
+                  'stepSize', 'last_update']
 
-    def __init__(self, quotes_or_assets=None, klines=None, client=None, url_scheme=str, root_path='data-bucket/',
+    def __init__(self, quotes_or_assets=None, klines=None, client=None, url_scheme=str, root_path='data/',
                              store_metrics=None, store_signals=None):
         self._quotes_or_assets = quotes_or_assets
         self._client = client
@@ -247,7 +247,7 @@ class KLMngr(Klines):
         exchange_info = self.client.get_exchange_info()
         symbols_info = exchange_info['symbols']
         symbols_info_parsed = KLMngr._parse_symbols_info(symbols_info)
-        new_info = pd.DataFrame(symbols_info_parsed, columns=self._info_cols).set_index('symbol')
+        new_info = pd.DataFrame(symbols_info_parsed, columns=self._info_cols[:-1]).set_index('symbol')
         new_info.loc[:, 'last_update'] = pd.Series(dtype='<M8[ns]')
         both_new_and_old = set(new_info.index) & set(self.info.index)
         new_info.loc[both_new_and_old, 'last_update'] = self.info.loc[both_new_and_old, 'last_update']
