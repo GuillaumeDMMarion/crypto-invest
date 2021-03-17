@@ -26,6 +26,11 @@ class Klines(dict):
             super(Klines, self).__init__(klines)
         else:
             super(Klines, self).__init__(zip([kline.asset for kline in klines], klines))
+        try:
+            for col in (self.listedvalues()[0].columns.tolist())+['metrics', 'signals']:
+                self._add_dynamic_fct(col)
+        except IndexError:
+            pass
 
     def __repr__(self):
         repr_l = [str(k)+": <class 'Kline'>" for k,v in self.sorteditems()]
@@ -36,6 +41,17 @@ class Klines(dict):
         str_l = [str(k)+': '+str(v.close.iloc[-1]) for k,v in self.sorteditems()]
         str_s = '\n'.join(str_l)
         return str(str_s)
+
+    def _add_dynamic_fct(self, col):
+        def dynamic_fct(index=-1, func=np.mean):
+            group = lambda x: func(x)
+            return dict([(asset, group(getattr(kline, col).iloc[index])) for asset, kline in self.sorteditems()])
+        dynamic_fct.__doc__ = """Args:\n    index (int/slice): Index or slice of the line(s) to include.
+            func (function): Function to apply.\n\nReturns:
+            func aggregate of {} over the indicated index for all
+          assets.""".format(col)
+        dynamic_fct.__name__ = '{}'.format(col)
+        setattr(self, dynamic_fct.__name__, dynamic_fct)
 
     def sorteditems(self):
         """
@@ -58,6 +74,14 @@ class Klines(dict):
         """
         return sorted(self.keys())
 
+    def reindex(self, index):
+        """
+        Returns:
+            (Klines) A reindexed (collection of) Kline oject(s).
+        """
+        selection = [v.reindex(index) for k, v in self.items()]
+        return Klines(selection)
+
     def select(self, names, method='quote'):
         """
         Args:
@@ -71,8 +95,8 @@ class Klines(dict):
         fun_dict = {'base':str.startswith, 'quote':str.endswith, 'asset':np.random.choice([str.startswith,
                                                                                            str.endswith])}
         fun = fun_dict[method]
-        selection=[[v for k,v in self.items() if fun(k, name)] for name in names]
-        flat_selection=[item for sublist in selection for item in sublist]
+        selection = [[v for k, v in self.items() if fun(k, name)] for name in names]
+        flat_selection = [item for sublist in selection for item in sublist]
         return Klines(flat_selection)
 
 
@@ -106,11 +130,11 @@ class KLMngr(Klines):
             self.from_quotes_or_assets(quotes_or_assets)
         elif klines is not None:
             self.from_klines(klines)
-        try:
-            for col in (self.listedvalues()[0].columns.tolist())+['metrics', 'signals']:
-                self._add_dynamic_fct(col)
-        except IndexError:
-            pass
+        # try:
+        #     for col in (self.listedvalues()[0].columns.tolist())+['metrics', 'signals']:
+        #         self._add_dynamic_fct(col)
+        # except IndexError:
+        #     pass
 
     @property
     def quotes_or_assets(self):
@@ -290,17 +314,6 @@ class KLMngr(Klines):
         except FileNotFoundError:
             self._info = pd.DataFrame([], columns=self._info_cols)
             self.update_info()
-
-    def _add_dynamic_fct(self, col):
-        def dynamic_fct(index=-1, func=np.mean):
-            group = lambda x: func(x)
-            return dict([(asset, group(getattr(kline, col).iloc[index])) for asset, kline in self.sorteditems()])
-        dynamic_fct.__doc__ = """Args:\n    index (int/slice): Index or slice of the line(s) to include.
-            func (function): Function to apply.\n\nReturns:
-            func aggregate of {} over the indicated index for all
-          assets.""".format(col)
-        dynamic_fct.__name__ = '{}'.format(col)
-        setattr(self, dynamic_fct.__name__, dynamic_fct)
 
     def _open(self, path, mode):
         if self._url_scheme==str:
