@@ -38,13 +38,13 @@ class _Kline(pd.DataFrame):
     def metrics(self):
         """Get metrics.
         """
-        return self._metrics.loc[self.index, :]
+        return self._metrics.reindex(self.index)
 
     @property
     def signals(self):
         """Get signals.
         """
-        return self._signals.loc[self.index, :]
+        return self._signals.reindex(self.index)
 
     @property
     def url_scheme(self):
@@ -430,7 +430,7 @@ class _Signals(pd.DataFrame):
     def _compute_signal_TREND(kline, metric='SMA_50', consecutive_days=2, min_slope=1e-7):
         ydiff = getattr(kline.metrics, metric) - getattr(kline.metrics, metric).shift(1)
         dateindex = pd.Series(kline.index.values)
-        xdiff = (dateindex - dateindex.shift(1)).apply(lambda x :x.days)
+        xdiff = (dateindex - dateindex.shift(1)).apply(lambda x :x.days).replace(0, np.nan)
         pos_slope = pd.Series(((ydiff.values/xdiff.values)>min_slope).astype(int), index=kline.index)
         pos_slope_cumul = pos_slope * (pos_slope.groupby((pos_slope != pos_slope.shift()).cumsum()).cumcount() + 1)
         trend = pos_slope_cumul > (consecutive_days-1)
