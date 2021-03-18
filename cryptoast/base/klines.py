@@ -74,13 +74,15 @@ class Klines(dict):
         """
         return sorted(self.keys())
 
-    def reindex(self, index):
+    def reindex(self, index, fill='ffill'):
         """
         Returns:
             (Klines) A reindexed (collection of) Kline oject(s).
         """
-        selection = [v.reindex(index) for k, v in self.items()]
-        return Klines(selection)
+        reindexes = [v.reindex(index) for k, v in self.items()]
+        if fill is not None:
+            reindexes = [getattr(reindex, fill)() for reindex in reindexes]
+        return Klines(reindexes)
 
     def select(self, names, method='quote'):
         """
