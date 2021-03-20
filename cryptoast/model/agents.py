@@ -68,6 +68,28 @@ class Backtest():
         return self._history[0]
 
     @staticmethod
+    def _step(order, position, timestamps, periodic, orders, history, memory,
+              commission, slippage_steps, slippage_pct, stepsize, kline, verbose):
+        """Step forward.
+        """
+        if verbose > 0:
+            print(position['timestamp'], 'stepping', sep=':')
+        previous_timestamp = position['timestamp']
+        position['index'] += 1
+        position['timestamp'] = timestamps[position['index']]
+        timestamp = position['timestamp']
+        periodic[timestamp] = periodic[previous_timestamp].copy()
+        Backtest._book_order(order=order, timestamp=timestamp, orders=orders,
+                            commission=commission, slippage_steps=slippage_steps, verbose=0)
+        Backtest._fill_order(orders=orders, timestamp=timestamp, periodic=periodic,
+                            kline=kline, commission=commission, slippage_pct=slippage_pct,
+                            stepsize=stepsize, verbose=0)
+        periodic[timestamp]['value'] = (periodic[timestamp]['cash'] +
+                                        periodic[timestamp]['assets'] *
+                                        kline[timestamp]['close'])
+        history[0] = history[0][-memory+1:] + [list(periodic[timestamp].values())]
+
+    @staticmethod
     def _book_order(order, timestamp, orders, commission, slippage_steps, verbose=0):
         """Book order.
         """
@@ -124,28 +146,6 @@ class Backtest():
         orders[timestamp]['value'] = value
         return None
 
-    @staticmethod
-    def _step(order, position, timestamps, periodic, orders, history, memory,
-              commission, slippage_steps, slippage_pct, stepsize, kline, verbose):
-        """Step forward.
-        """
-        if verbose > 0:
-            print(position['timestamp'], 'stepping', sep=':')
-        previous_timestamp = position['timestamp']
-        position['index'] += 1
-        position['timestamp'] = timestamps[position['index']]
-        timestamp = position['timestamp']
-        periodic[timestamp] = periodic[previous_timestamp].copy()
-        Backtest._book_order(order=order, timestamp=timestamp, orders=orders,
-                            commission=commission, slippage_steps=slippage_steps, verbose=0)
-        Backtest._fill_order(orders=orders, timestamp=timestamp, periodic=periodic,
-                            kline=kline, commission=commission, slippage_pct=slippage_pct,
-                            stepsize=stepsize, verbose=0)
-        periodic[timestamp]['value'] = (periodic[timestamp]['cash'] +
-                                        periodic[timestamp]['assets'] *
-                                        kline[timestamp]['close'])
-        history[0] = history[0][-memory+1:] + [list(periodic[timestamp].values())]
-
     def from_kline(self, kline, start_index=0):
         """From kline.
         """
@@ -169,6 +169,13 @@ class Backtest():
         self._history = {0:[[0, 0, 0] for _ in range(self.memory-1)] +
                            [list(self._periodic[self.position['timestamp']].values())]}
 
+    def run(self, orders, verbose=0):
+        """Step forward multiple times.
+        """
+        for order in orders:
+            self.step(order=order, verbose=verbose)
+        return None
+
     def step(self, order, verbose=0):
         """Step forward.
         """
@@ -179,7 +186,7 @@ class Backtest():
                        stepsize=self.stepSize, kline=self.kline, verbose=verbose)
 
     def stepx(self, n=1, orders=None, inplace=False, verbose=0):
-        """Step forward in simulation.
+        """Step forward while catching result.
         """
         orders = np.repeat(0, n) if orders is None else orders
         if not inplace:
@@ -194,14 +201,6 @@ class Backtest():
                                slippage_steps=self.slippage_steps, slippage_pct=self.slippage_pct,
                                stepsize=self.stepSize, kline=self.kline, verbose=verbose)
             return _periodic, _orders, _history
-
-    def run(self, orders, verbose=0):
-        """Run a number of steps.
-        """
-        for order in orders:
-            self.step(order=order, verbose=verbose)
-        return None
-
 
 class SingleAssetEnv(gym.Env):
     """Single Asset Environment.
