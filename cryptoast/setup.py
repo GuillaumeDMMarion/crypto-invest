@@ -8,6 +8,6 @@ setup(
     url='http://github.com/GuillaumeDMMarion/crypto-invest',
     description='Library for managing crypto currency assets',
     install_requires=[
-        "numpy", "pandas", "plotly", "tqdm", "requests",
+        "numpy", "pandas", "plotly", "tqdm", "requests", "python-binance", "pip"
     ],
 )
