@@ -281,11 +281,12 @@ class KLMngr(Klines):
         path_or_buf = self._open(self._root_path+self._metadata_path, mode='w')
         self._info.to_csv(path_or_buf=path_or_buf, sep=';')
 
-    def update_data(self, verbose, sleep):
+    def update_data(self, verbose, sleep, retries=5):
         """
         Args:
             verbose (int): Controls verbosity.
             sleep (int): Sleep interval between update ticks.
+            retries (int): Number of retry if TimeoutError is encountered.
 
         Returns:
             None. Updates for all initialized assets the data and writes it to csv.
@@ -293,13 +294,16 @@ class KLMngr(Klines):
         self.from_quotes_or_assets(self.sortedkeys())
         progress_func = tqdm if verbose==1 else list
         for asset in progress_func(self.sortedkeys()):
+            retry = 0
             while True:
                 try:
                     verbose_asset = verbose==2
                     self[asset].update(self.client, store=True, verbose=verbose_asset, sleep=sleep)
                     break
                 except (TimeoutError, ReadTimeout):
-                    pass
+                    retry += 1
+                if retry == retries:
+                    break
             self._info.loc[asset,'last_update'] = self[asset].index[-1]
             path_or_buf = self._open(self._root_path+self._metadata_path, mode='w')
             self._info.to_csv(path_or_buf=path_or_buf, sep=';')
