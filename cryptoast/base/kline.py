@@ -150,15 +150,18 @@ class _Kline(pd.DataFrame):
         """
         today = datetime.utcnow()
         today_ts = pd.Timestamp(year=today.year, month=today.month, day=today.day, hour=today.hour)
-        while self.index.max() != today_ts:
-            start_from_index = self.index.max()
-            start_from_index = (pd.Timestamp(year=2017, month=1, day=1, hour=0, tz='UTC') if pd.isnull(start_from_index)
-                                else start_from_index)
+        last_index_max = self.index.max()
+        while last_index_max != today_ts:
+            start_from_index = (pd.Timestamp(year=2017, month=1, day=1, hour=0, tz='UTC') if pd.isnull(last_index_max)
+                                else last_index_max)
             remote_df = self._get_remote(client=client, start_datetime=start_from_index)
             for index in remote_df.index:
                 if verbose:
                     print(self.name, index)
                 self.loc[index,:] = remote_df.loc[index,:]
+            if last_index_max == self.index.max():
+                break
+            last_index_max = self.index.max()
             time.sleep(sleep)
         if store:
             self.store()
