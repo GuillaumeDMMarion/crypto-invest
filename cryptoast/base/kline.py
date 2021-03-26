@@ -433,7 +433,7 @@ class _Signals(pd.DataFrame):
     def _compute_signal_TREND(kline, metric='SMA_50', consecutive_days=2, min_slope=1e-7):
         ydiff = getattr(kline.metrics, metric) - getattr(kline.metrics, metric).shift(1)
         dateindex = pd.Series(kline.index.values)
-        xdiff = (dateindex - dateindex.shift(1)).apply(lambda x :x.days).replace(0, np.nan)
+        xdiff = ((dateindex - dateindex.shift(1)).dt.total_seconds()/3600).replace(0, np.nan)
         pos_slope = pd.Series(((ydiff.values/xdiff.values)>min_slope).astype(int), index=kline.index)
         pos_slope_cumul = pos_slope * (pos_slope.groupby((pos_slope != pos_slope.shift()).cumsum()).cumcount() + 1)
         trend = pos_slope_cumul > (consecutive_days-1)
