@@ -62,17 +62,12 @@ class _Kline(pd.DataFrame):
     def store_metrics(self):
         """Get stored metrics list.
         """
-        if self._store_metrics is None:
-            return [('SMA', (50,)), ('SMA', (200,)), ('EMA', (12,)), ('EMA', (26, ))]
         return self._store_metrics
 
     @property
     def store_signals(self):
         """Get stored signals list.
         """
-        if self._store_signals is None:
-            return [('CROSSOVERS', ('SMA_50', 'SMA_200')), ('TREND', ('SMA_50',)), ('PRICECROSS', ('SMA_50',)),
-                    ('MACDCROSS', ('EMA_12', 'EMA_26', 'EMA', 9, 0))]
         return self._store_signals
 
     @property
@@ -176,12 +171,12 @@ class _Kline(pd.DataFrame):
         path_or_buf = self._open(self.root_path+self.asset+'.csv', mode='w')
         self.to_csv(path_or_buf=path_or_buf, sep=';')
 
-    def plot(self, size=180, signals=None, metrics=None, rangeslider=False, fig=None):
+    def plot(self, size=180, metrics=None, signals=None, rangeslider=False, fig=None):
         """
         Args:
             size (int): The number of ticks in the past for which to plot the desired graph.
-            signals (list): List of signals to plot.
             metrics (list): List of metrics to plot.
+            signals (list): List of signals to plot.
             rangeslides (bool): Whether to plot a rangeslider or not.
             fig (plotly.graph_objs.Figure): An exising plotly figure on which to plot.
 
@@ -193,16 +188,34 @@ class _Kline(pd.DataFrame):
         signals, metrics = [([] if s_or_m is None else s_or_m) for s_or_m in (signals, metrics)]
         colors = ["#f94144", "#f3722c", "#f8961e", "#f9844a", "#f9c74f", "#90be6d", "#43aa8b", "#4d908e",
                   "#577590", "#277da1"]
-        y_min, y_max = np.percentile(self.open[-size:], [0,100])
-        fig.add_trace(go.Candlestick(x=self.index[-size:], open=self.open[-size:], high=self.high[-size:],
-                                     low=self.low[-size:], close=self.close[-size:], name=self.name))
+        y_min, y_max = self.low[-size:].min(), self.high[-size:].max()
+        fig.add_trace(go.Candlestick(x=self.index[-size:],
+                                     open=self.open[-size:],
+                                     high=self.high[-size:],
+                                     low=self.low[-size:],
+                                     close=self.close[-size:],
+                                     name=self.name))
         for i, metric in enumerate(metrics):
             color_index = int(i/len(metrics)*len(colors))
-            fig.add_trace(go.Scatter(x=self.index[-size:], y=self.metrics.loc[:, metric][-size:], name=metric,
-                                     line=dict(color=colors[color_index])))
+            fig.add_trace(go.Scatter(x=self.index[-size:],
+                                     y=self.metrics.loc[:, metric][-size:],
+                                     line=dict(color=colors[color_index]),
+                                     name=metric))
         for signal in signals:
-            fig.add_trace(go.Scatter(x=self.index[-size:], y=np.where(self.signals.loc[:,signal][-size:],y_max,0),
-                                     mode='none', fill='tozeroy', fillcolor='rgba(60,220,100,0.2)', name=signal))
+            signal_data = self.signals.loc[:, signal]
+            fig.add_trace(go.Scatter(x=self.index[-size:],
+                                     y=np.where(signal_data.eq(1)[-size:], y_max, 0),
+                                     mode='none',
+                                     fill='tozeroy',
+                                     fillcolor='rgba(60, 220, 100, 0.2)',
+                                     name=signal+'-BUY'))
+            fig.add_trace(go.Scatter(x=self.index[-size:],
+                                     y=np.where(signal_data.eq(-1)[-size:], y_max, 0),
+                                     mode='none',
+                                     fill='tozeroy',
+                                     fillcolor='rgba(220, 60, 100, 0.2)',
+                                     visible='legendonly',
+                                     name=signal+'-SELL'))
         fig.update_layout(xaxis_rangeslider_visible=rangeslider)
         fig.update_yaxes(range=[y_min, y_max])
         fig.show()
@@ -220,15 +233,24 @@ class Kline(_Kline):
         info (pd.Series): Inherited when initialized from KLMngr.
     """
     _cols = ['open_time', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'quote_asset_volume',
-                     'number_of_trades', 'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'n/a']
+             'number_of_trades', 'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'n/a']
+    _store_metrics_default = [('SMA', (50,)),
+                              ('SMA', (200,)),
+                              ('EMA', (12,)),
+                              ('EMA', (26, ))]
+    _store_signals_default = [('CROSSOVERS', ('SMA_50', 'SMA_200')),
+                              ('TREND', ('SMA_50', 2)),
+                              ('PRICECROSS', ('SMA_50', )),
+                              ('MACDCROSS', ('EMA_12', 'EMA_26', 'EMA', 9)),
+                              ('RSICROSS', (14, 30, 70))]
 
     def __init__(self, asset, data=None, url_scheme=str, root_path='data/', store_metrics=None,
                  store_signals=None, info=None):
         self._asset = asset
         self._url_scheme = url_scheme
         self._root_path = root_path
-        self._store_metrics = store_metrics
-        self._store_signals = store_signals
+        self._store_metrics = self._store_metrics_default if store_metrics is None else store_metrics
+        self._store_signals = self._store_signals_default if store_signals is None else store_signals
         self._cached = False
         self._metrics = Metrics(self, store_metrics=self.store_metrics)
         self._signals = Signals(self, store_signals=self.store_signals)
@@ -299,19 +321,26 @@ class _Metrics(pd.DataFrame):
         return self._store_metrics
 
     def compute(self, metric, *args, **kwargs):
-        """Compute metric.
+        """Compute a metric.
         """
         fun = metric
         computed_metric = getattr(self, '_compute_metric_'+fun)(self.kline, *args, **kwargs)
         return computed_metric
 
     def append(self, computed_metric, metric, *args, **kwargs):
-        """Append metric.
+        """Append a metric.
         """
         str_args = '_' + '_'.join([str(_) for _ in args]) if len(args) > 0 else ''
         str_kwargs = '_' + '_'.join([str(kwargs[_]) for _ in kwargs]) if len(kwargs) > 0 else ''
         metric_name = metric + str_args + str_kwargs
         self.loc[:, metric_name] = computed_metric
+        return None
+
+    def extend(self, metric, *args, **kwargs):
+        """Compute and append a metric.
+        """
+        computed_metric = self.compute(metric, *args, **kwargs)
+        self.append(computed_metric, metric, *args, **kwargs)
         return None
 
     @staticmethod
@@ -373,7 +402,7 @@ class Metrics(_Metrics):
                     fun, args = metric
                 except ValueError:
                     fun = metric
-                self.append(self.compute(fun, *args), fun, *args)
+                self.extend(fun, *args)
         return super(Metrics, self).__getattr__(attr_name)
 
 
@@ -408,14 +437,14 @@ class _Signals(pd.DataFrame):
         return self._store_signals
 
     def compute(self, signal, *args, **kwargs):
-        """Compute signal.
+        """Compute a signal.
         """
         fun = signal
         computed_signal = getattr(self, '_compute_signal_'+fun)(self.kline, *args, **kwargs)
         return computed_signal
 
     def append(self, computed_signal, signal, *args, **kwargs):
-        """Append signal.
+        """Append a signal.
         """
         str_args = '_' + '_'.join([str(_) for _ in args]) if len(args) > 0 else ''
         str_kwargs = '_' + '_'.join([str(kwargs[_]) for _ in kwargs]) if len(kwargs) > 0 else ''
@@ -423,34 +452,60 @@ class _Signals(pd.DataFrame):
         self.loc[:, signal_name] = computed_signal
         return None
 
-    @staticmethod
-    def _compute_signal_CROSSOVERS(kline, fast_metric='SMA_50', slow_metric='SMA_200'):
-        sl_diff = getattr(kline.metrics, fast_metric) - getattr(kline.metrics, slow_metric)
-        crossovers = (sl_diff>0) & (sl_diff>sl_diff.shift(1))
-        return crossovers
+    def extend(self, signal, *args, **kwargs):
+        """Compute and append a signal.
+        """
+        computed_signal = self.compute(signal, *args, **kwargs)
+        self.append(computed_signal, signal, *args, **kwargs)
+        return None
 
     @staticmethod
-    def _compute_signal_TREND(kline, metric='SMA_50', consecutive_days=2, min_slope=1e-7):
-        ydiff = getattr(kline.metrics, metric) - getattr(kline.metrics, metric).shift(1)
-        dateindex = pd.Series(kline.index.values)
-        xdiff = ((dateindex - dateindex.shift(1)).dt.total_seconds()/3600).replace(0, np.nan)
-        pos_slope = pd.Series(((ydiff.values/xdiff.values)>min_slope).astype(int), index=kline.index)
-        pos_slope_cumul = pos_slope * (pos_slope.groupby((pos_slope != pos_slope.shift()).cumsum()).cumcount() + 1)
-        trend = pos_slope_cumul > (consecutive_days-1)
-        return trend
+    def _compute_signal_CROSSOVERS(kline, fast_metric='SMA_50', slow_metric='SMA_200', buffer=.0001):
+        sl_diff = (getattr(kline.metrics, fast_metric) -
+                   getattr(kline.metrics, slow_metric))/getattr(kline.metrics, fast_metric)
+        # crossovers = ((sl_diff > 0) & (sl_diff > sl_diff.shift(1))).map({True: 1., False: -1.})
+        bins = [-float('inf'), -buffer, buffer+1e-10, float('inf')]
+        cuts = pd.cut(sl_diff, bins=bins, duplicates='drop', labels=False)-1.
+        return cuts.where(cuts != 1, cuts.where(sl_diff.diff(1) > 0, 0))
 
     @staticmethod
-    def _compute_signal_PRICECROSS(kline, metric='SMA_50'):
-        pricecross = kline.close > getattr(kline.metrics, metric)
-        return pricecross
+    def _compute_signal_TREND(kline, metric='SMA_50', repeat=2, buffer=.0001):
+        ydiff = getattr(kline.metrics, metric).pct_change(1)
+        index_diff = kline.index.to_series().diff(1)
+        seconds_per_step = index_diff.value_counts().index[0].total_seconds()
+        xdiff = (index_diff.dt.total_seconds()/seconds_per_step).replace(0, np.nan)
+        slopes = (ydiff/xdiff)
+        bins = [-float('inf'), -buffer, buffer+1e-10, float('inf')]
+        slopes_bins = pd.cut(slopes, bins=bins, duplicates='drop', labels=False)-1
+        slopes_bins_rolling = slopes_bins.rolling(repeat).sum()
+        mask = (slopes_bins_rolling <= -repeat) | (slopes_bins_rolling >= repeat)
+        return slopes_bins_rolling.where(mask).fillna(0).clip(-1., 1.)
+
+    @staticmethod
+    def _compute_signal_PRICECROSS(kline, metric='SMA_50', buffer=.0001):
+        price_metric_diff = (kline.close - getattr(kline.metrics, metric))/kline.close
+        bins = [-float('inf'), -buffer, buffer+1e-10, float('inf')]
+        return pd.cut(price_metric_diff, bins=bins, duplicates='drop', labels=False)-1.
 
     @staticmethod
     def _compute_signal_MACDCROSS(kline, fast_metric='EMA_12', slow_metric='EMA_26', signal='EMA', window=9,
-                                  threshold=0):
+                                  buffer=.0001):
         macd = (getattr(kline.metrics, fast_metric)-getattr(kline.metrics, slow_metric))
         signal_line = getattr(Metrics, '_compute_metric_'+signal)(macd.rename('close').to_frame(), window=window)
-        macd_signal_cross = (macd - signal_line) > threshold
-        return macd_signal_cross
+        macd_signal_diff = (macd - signal_line)/macd
+        bins = [-float('inf'), -buffer, buffer+1e-10, float('inf')]
+        return pd.cut(macd_signal_diff, bins=bins, duplicates='drop', labels=False)-1.
+
+    @staticmethod
+    def _compute_signal_RSICROSS(kline, window=14, lower=30, upper=70):
+        pct_gain = kline.close.pct_change().clip(lower=0)
+        pct_loss = kline.close.pct_change().clip(upper=0).abs()
+        avg_gain = pct_gain.rolling(window).mean()
+        avg_loss = pct_loss.rolling(window).mean()
+        smoothed_avg_gain = ((avg_gain.shift(1)*(window-1))+pct_gain)/window
+        smoothed_avg_loss = ((avg_loss.shift(1)*(window-1))+pct_loss)/window
+        rsi = 100-(100/(1+(smoothed_avg_gain/smoothed_avg_loss)))
+        return -(pd.cut(rsi, bins=[-float('inf'), lower, upper, float('inf')], labels=False)-1.)
 
 class Signals(_Signals):
     """
@@ -476,5 +531,5 @@ class Signals(_Signals):
                     fun, args = signal
                 except ValueError:
                     fun = signal
-                self.append(self.compute(fun, *args), fun, *args)
+                self.extend(fun, *args)
         return super(Signals, self).__getattr__(attr_name)

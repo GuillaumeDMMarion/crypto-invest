@@ -24,4 +24,5 @@ dependencies:
   - pip
   - pip:
     - python-binance==0.7.5
+    - ta==0.7.0
     - stable-baselines3
