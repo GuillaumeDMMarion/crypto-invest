@@ -3,6 +3,7 @@ Objects for unique assets.
 """
 from datetime import datetime
 import time
+import ta
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -15,8 +16,8 @@ class _Kline(pd.DataFrame):
     """
     Pandas DataFrame subclass with custom metadata and constructor for Kline class.
     """
-    _metadata = ['_asset', '_metrics', '_signals', '_url_scheme', '_root_path', '_store_metrics', '_store_signals',
-                 '_cached', '_info']
+    _metadata = ['_asset', '_indicators', '_metrics', '_signals', '_url_scheme', '_root_path', '_store_indicators',
+                 '_store_metrics', '_store_signals', '_cached', '_info']
 
     @property
     def _constructor(self):
@@ -33,6 +34,12 @@ class _Kline(pd.DataFrame):
         """Get asset name.
         """
         return self._asset
+
+    @property
+    def indicators(self):
+        """Get indicators.
+        """
+        return self._indicators.reindex(self.index)
 
     @property
     def metrics(self):
@@ -57,6 +64,12 @@ class _Kline(pd.DataFrame):
         """Get root path.
         """
         return self._root_path
+
+    @property
+    def store_indicators(self):
+        """Get stored indicators list.
+        """
+        return self._store_indicators
 
     @property
     def store_metrics(self):
@@ -234,6 +247,12 @@ class Kline(_Kline):
     """
     _cols = ['open_time', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'quote_asset_volume',
              'number_of_trades', 'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'n/a']
+    _store_indicators_default = [('sma', (50,)),
+                                 ('sma', (200,)),
+                                 ('ema', (12,)),
+                                 ('ema', (26,)),
+                                 ('macd', (26, 12, 9)),
+                                 ('adx', (14,))]
     _store_metrics_default = [('SMA', (50,)),
                               ('SMA', (200,)),
                               ('EMA', (12,)),
@@ -244,14 +263,16 @@ class Kline(_Kline):
                               ('MACDCROSS', ('EMA_12', 'EMA_26', 'EMA', 9)),
                               ('RSICROSS', (14, 30, 70))]
 
-    def __init__(self, asset, data=None, url_scheme=str, root_path='data/', store_metrics=None,
+    def __init__(self, asset, data=None, url_scheme=str, root_path='data/', store_indicators=None, store_metrics=None,
                  store_signals=None, info=None):
         self._asset = asset
         self._url_scheme = url_scheme
         self._root_path = root_path
+        self._store_indicators = self._store_indicators_default if store_indicators is None else store_indicators
         self._store_metrics = self._store_metrics_default if store_metrics is None else store_metrics
         self._store_signals = self._store_signals_default if store_signals is None else store_signals
         self._cached = False
+        self._indicators = Indicators(self, store_indicators=self.store_indicators)
         self._metrics = Metrics(self, store_metrics=self.store_metrics)
         self._signals = Signals(self, store_signals=self.store_signals)
         self._info = info
@@ -288,6 +309,98 @@ class Kline(_Kline):
                                                    level=level, origin=origin, offset=offset), 'agg')(agg_dict)
         return Kline(asset=self.asset, data=data, url_scheme=self._url_scheme, root_path=self._root_path,
                      store_metrics=self._store_metrics, store_signals=self._store_signals, info=self._info)
+
+
+class _Indicators(pd.DataFrame):
+    """
+    Pandas DataFrame subclass with custom metadata and constructor for Indicators class.
+    """
+    _metadata = ['_kline', '_cached', '_store_indicators']
+    _ta_map = {
+        'sma': ['trend', 'SMAIndicator', ['close'], ['sma_indicator']],
+        'ema': ['trend', 'EMAIndicator', ['close'], ['ema_indicator']],
+        'wma': ['trend', 'WMAIndicator', ['close'], ['wma']],
+        'macd': ['trend', 'MACD', ['close'], ['macd', 'macd_signal', 'macd_diff']],
+        'adx': ['trend', 'ADXIndicator', ['high', 'low', 'close'], ['adx', 'adx_pos', 'adx_neg']]
+    }
+
+    @property
+    def _constructor(self):
+        """Requirement for correct pd.DataFrame subclassing.
+        """
+        return _Indicators
+
+    @property
+    def kline(self):
+        """Get underlying kline.
+        """
+        return self._kline
+
+    @property
+    def cached(self):
+        """Get cached indicator.
+        """
+        return self._cached
+
+    @property
+    def store_indicators(self):
+        """Get stored indicators list.
+        """
+        return self._store_indicators
+
+    def compute(self, indicator, *args, **kwargs):
+        """Compute an indicator.
+        """
+        module_name, class_name, value_names, method_names = self._ta_map[indicator]
+        default_args = (getattr(self.kline, value_name) for value_name in value_names)
+        ta_class = getattr(getattr(ta, module_name), class_name)(*default_args, *args, **kwargs)
+        computed_indicators = []
+        for method_name in method_names:
+            computed_indicators.append(getattr(ta_class, method_name)())
+        return pd.concat(computed_indicators, axis=1)
+
+    def append(self, computed_indicator, *args, **kwargs):
+        """Append an indicator.
+        """
+        for column in computed_indicator:
+            self.loc[:, column.lower()] = computed_indicator[column]
+        return None
+
+    def extend(self, indicator, *args, **kwargs):
+        """Compute and append an indicator.
+        """
+        computed_indicator = self.compute(indicator, *args, **kwargs)
+        self.append(computed_indicator, *args, **kwargs)
+        return None
+
+
+class Indicators(_Indicators):
+    """
+    Object for asset-specific indicators manipulations.
+
+    Args:
+        kline (Kline): Kline from which to get info to compute indicators.
+        store_indicators (list): Indicator names to store in memory.
+    """
+    def __init__(self, kline, store_indicators):
+        self._kline=kline
+        self._cached=False
+        self._store_indicators=store_indicators
+        # super().__init__()
+
+    def __getattr__(self, attr_name):
+        if not self._cached:
+            self._cached=True
+            data=pd.DataFrame(data=[], index=self.kline.index)
+            super(Indicators, self).__init__(data=data)
+            for indicator in self.store_indicators:
+                try:
+                    fun, args = indicator
+                except ValueError:
+                    fun = indicator
+                self.extend(fun, *args)
+        return super(Indicators, self).__getattr__(attr_name)
+
 
 
 class _Metrics(pd.DataFrame):
@@ -493,8 +606,18 @@ class _Signals(pd.DataFrame):
         macd = (getattr(kline.metrics, fast_metric)-getattr(kline.metrics, slow_metric))
         signal_line = getattr(Metrics, '_compute_metric_'+signal)(macd.rename('close').to_frame(), window=window)
         macd_signal_diff = (macd - signal_line)/macd
-        bins = [-float('inf'), -buffer, buffer+1e-10, float('inf')]
-        return pd.cut(macd_signal_diff, bins=bins, duplicates='drop', labels=False)-1.
+        return macd_signal_diff
+        # bins = [-float('inf'), -buffer, buffer+1e-10, float('inf')]
+        # return pd.cut(macd_signal_diff, bins=bins, duplicates='drop', labels=False)-1.
+
+    @staticmethod
+    def _compute_signal_MACDCROSS2(kline, fast=12, slow=26, window=9, buffer=.0001):
+        macd = getattr(kline.indicators, 'macd_{}_{}'.format(fast, slow))
+        macd_diff = getattr(kline.indicators, 'macd_diff_{}_{}'.format(fast, slow))
+        macd_signal_diff = macd_diff/macd
+        return macd_signal_diff
+        # bins = [-float('inf'), -buffer, buffer+1e-10, float('inf')]
+        # return pd.cut(macd_signal_diff, bins=bins, duplicates='drop', labels=False)-1.
 
     @staticmethod
     def _compute_signal_RSICROSS(kline, window=14, lower=30, upper=70):
