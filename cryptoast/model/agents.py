@@ -205,13 +205,17 @@ class Backtest():
 class SingleAssetEnv(gym.Env):
     """Single Asset Environment.
     """
+    rel_indicators_stem = ('sma', 'ema', 'wma', 'hband', 'lband', 'mavg', 'dchband', 'dcmband', 'dclband', 'kc_hband',
+                           'kc_lband', 'psar', 'vwap')
+    abs_indicators_stem = ('macd', 'adx', 'rsi', 'atr', 'cmf', 'mfi', 'obv', 'roc', 'stoch')
+
     def __init__(self, klmngr, assets, backtest=None, window=24, datetimes=None, randomize_start=True, allow_gaps=False,
                  episode_steps=-1):
         super().__init__()
 
         self.action_space = gym.spaces.Discrete(3)
-        self.obs_cols = 1 # len(klmngr._store_metrics)+1
-        self.observation_space = gym.spaces.Box(low=-3, high=3, shape=(window*(self.obs_cols+2),), dtype=np.float32)
+        self.obs_cols = 30 #  # len(klmngr._store_indicators)+1
+        self.observation_space = gym.spaces.Box(low=-100, high=100, shape=(window*(self.obs_cols+2),), dtype=np.float32)
 
         self.klmngr = klmngr
         self.assets = assets
@@ -246,9 +250,23 @@ class SingleAssetEnv(gym.Env):
         """
         timestamp = timestamp + pd.Timedelta(days=1)
         close_values = self.kline.loc[:timestamp, :].close.values[-window:].reshape(-1, 1)
-        # metric_values = self.kline.metrics.loc[:timestamp, :].fillna(-1).values[-window:]
+        abs_indicator_values = self.kline.indicators.loc[:timestamp, self.abs_indicators].fillna(-1).values[-window:]
+        rel_indicator_values = self.kline.indicators.loc[:timestamp, self.rel_indicators].fillna(-1).values[-window:]
+        observation = np.hstack((abs_indicator_values, rel_indicator_values / close_values))
         periodic_values = np.array(self.backtest.history)[:, :2]
-        observation_raw = np.hstack((close_values, )) # metric_values # periodic_values
+        transactions_history = np.hstack([0, 0] +
+                                         [(periodic_values[:-1, _] != periodic_values[1:, _]).astype(int)
+                                          for _ in [0, 1]])
+        return np.append(observation.T.flatten(), transactions_history)
+
+    def get_observation_old(self, timestamp, window):
+        """Get observation.
+        """
+        timestamp = timestamp + pd.Timedelta(days=1)
+        close_values = self.kline.loc[:timestamp, :].close.values[-window:].reshape(-1, 1)
+        # indicator_values = self.kline.indicators.loc[:timestamp, :].fillna(-1).values[-window:]
+        periodic_values = np.array(self.backtest.history)[:, :2]
+        observation_raw = np.hstack((close_values, )) # indicator_values # periodic_values
         if self.current_step % 720 == 0: # 720 == 24 * 30 # self.current_step == 0:
             scaler = StandardScaler() #MinMaxScaler((-1, 1))
             # Needs:
@@ -263,24 +281,24 @@ class SingleAssetEnv(gym.Env):
             scaler_history = 5000
             hist_close_values = self.kline.loc[:timestamp, :].close.values[-scaler_history:].reshape(-1, 1)
             '''
-            hist_metric_values = self.kline.metrics.loc[:timestamp, :].fillna(-1).values[-scaler_history:]
+            hist_indicator_values = self.kline.indicators.loc[:timestamp, :].fillna(-1).values[-scaler_history:]
             hist_periodic_values = self.backtest.periodic.loc[:timestamp, :].values[-scaler_history:, :2]
             hist_periodic_values = hist_periodic_values[~(hist_periodic_values==0).all(axis=1)]
-            if hist_periodic_values.shape[0] != hist_metric_values.shape[0]:
+            if hist_periodic_values.shape[0] != hist_indicator_values.shape[0]:
                 # try:
                 #     stepx = self.backtest.stepx(orders=np.random.randint(-10, 10, size=10))[0]
                 # except:
                 #     stepx = self.backtest.stepx(orders=np.random.randint(-10, 10, size=1))[0]
                 # rand_periodic_values = pd.DataFrame(stepx).T.values
-                # shape = hist_metric_values.shape[0]
+                # shape = hist_indicator_values.shape[0]
                 # hist_periodic_values_rep = np.vstack([periodic_values]*(int(shape/2/periodic_values.shape[0])+1))
                 # rand_periodic_values_rep = np.vstack([rand_periodic_values]*(int(shape/2/10)+1))
                 # hist_periodic_values = np.vstack([hist_periodic_values_rep, rand_periodic_values_rep])[-shape:]
-                shape_0 = hist_metric_values.shape[0]
+                shape_0 = hist_indicator_values.shape[0]
                 # hist_periodic_values = np.vstack([periodic_values]*(int(shape/periodic_values.shape[0])+1))[-shape:]
                 nans = np.full((shape_0, 2), np.nan)
                 hist_periodic_values = np.vstack([nans, hist_periodic_values])[-shape_0:]
-            hist_observation_raw = np.hstack((hist_close_values, hist_metric_values, hist_periodic_values))
+            hist_observation_raw = np.hstack((hist_close_values, hist_indicator_values, hist_periodic_values))
             '''
             fitted_scaler = scaler.fit(hist_close_values)
             setattr(self, 'scaler', fitted_scaler)
@@ -339,6 +357,8 @@ class SingleAssetEnv(gym.Env):
         self.scaler = None
         self.kline = kline
         self.backtest.from_kline(kline, start_index=index)
+        self.rel_indicators = self.kline.indicators.columns.to_series().str.startswith(self.rel_indicators_stem)
+        self.abs_indicators = self.kline.indicators.columns.to_series().str.startswith(self.abs_indicators_stem)
         observation = self.get_observation(timestamp=timestamp, window=self.window)
         return observation
 
