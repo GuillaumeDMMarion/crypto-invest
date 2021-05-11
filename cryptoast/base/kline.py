@@ -16,8 +16,8 @@ class _Kline(pd.DataFrame):
     """
     Pandas DataFrame subclass with custom metadata and constructor for Kline class.
     """
-    _metadata = ['_asset', '_indicators', '_metrics', '_signals', '_url_scheme', '_root_path', '_store_indicators',
-                 '_store_metrics', '_store_signals', '_cached', '_info']
+    _metadata = ['_asset', '_indicators', '_signals', '_url_scheme', '_root_path', '_store_indicators',
+                 '_store_signals', '_cached', '_info']
 
     @property
     def _constructor(self):
@@ -42,12 +42,6 @@ class _Kline(pd.DataFrame):
         return self._indicators.reindex(self.index)
 
     @property
-    def metrics(self):
-        """Get metrics.
-        """
-        return self._metrics.reindex(self.index)
-
-    @property
     def signals(self):
         """Get signals.
         """
@@ -70,12 +64,6 @@ class _Kline(pd.DataFrame):
         """Get stored indicators list.
         """
         return self._store_indicators
-
-    @property
-    def store_metrics(self):
-        """Get stored metrics list.
-        """
-        return self._store_metrics
 
     @property
     def store_signals(self):
@@ -173,7 +161,7 @@ class _Kline(pd.DataFrame):
             time.sleep(sleep)
         if store:
             self.store()
-        setattr(self, '_metrics', Metrics(self, store_metrics=self.store_metrics))
+        setattr(self, '_indicators', Indicators(self, store_indicators=self.store_indicators))
         setattr(self, '_signals', Signals(self, store_signals=self.store_signals))
 
     def store(self):
@@ -184,21 +172,21 @@ class _Kline(pd.DataFrame):
         path_or_buf = self._open(self.root_path+self.asset+'.csv', mode='w')
         self.to_csv(path_or_buf=path_or_buf, sep=';')
 
-    def plot(self, size=180, metrics=None, signals=None, rangeslider=False, fig=None):
+    def plot(self, size=180, indicators=None, signals=None, rangeslider=False, fig=None):
         """
         Args:
             size (int): The number of ticks in the past for which to plot the desired graph.
-            metrics (list): List of metrics to plot.
+            indicators (list): List of indicators to plot.
             signals (list): List of signals to plot.
             rangeslides (bool): Whether to plot a rangeslider or not.
             fig (plotly.graph_objs.Figure): An exising plotly figure on which to plot.
 
         Returns:
             None. Plots the assets "open-high-low-close" data in candlestick style,
-            overlayed with the desired metrics/signals.
+            overlayed with the desired indicators/signals.
         """
         fig = go.Figure() if fig is None else fig
-        signals, metrics = [([] if s_or_m is None else s_or_m) for s_or_m in (signals, metrics)]
+        signals, indicators = [([] if s_or_m is None else s_or_m) for s_or_m in (signals, indicators)]
         colors = ["#f94144", "#f3722c", "#f8961e", "#f9844a", "#f9c74f", "#90be6d", "#43aa8b", "#4d908e",
                   "#577590", "#277da1"]
         y_min, y_max = self.low[-size:].min(), self.high[-size:].max()
@@ -208,12 +196,12 @@ class _Kline(pd.DataFrame):
                                      low=self.low[-size:],
                                      close=self.close[-size:],
                                      name=self.name))
-        for i, metric in enumerate(metrics):
-            color_index = int(i/len(metrics)*len(colors))
+        for i, indicator in enumerate(indicators):
+            color_index = int(i/len(indicators)*len(colors))
             fig.add_trace(go.Scatter(x=self.index[-size:],
-                                     y=self.metrics.loc[:, metric][-size:],
+                                     y=self.indicators.loc[:, indicator][-size:],
                                      line=dict(color=colors[color_index]),
-                                     name=metric))
+                                     name=indicator))
         for signal in signals:
             signal_data = self.signals.loc[:, signal]
             fig.add_trace(go.Scatter(x=self.index[-size:],
@@ -241,7 +229,7 @@ class Kline(_Kline):
         asset (str): String of the official base-quote acronym.
         url_scheme (type): Function for the desired url-scheme. Defaults to str.
         root_path (str): Root path of the stored data.
-        store_metrics (iterable): List of metrics to store.
+        store_indicators (iterable): List of indicators to store.
         store_signals (iterable): List of signals to store.
         info (pd.Series): Inherited when initialized from KLMngr.
     """
@@ -251,29 +239,38 @@ class Kline(_Kline):
                                  ('sma', (200,)),
                                  ('ema', (12,)),
                                  ('ema', (26,)),
+                                 ('wma', (9,)),
                                  ('macd', (26, 12, 9)),
-                                 ('adx', (14,))]
-    _store_metrics_default = [('SMA', (50,)),
-                              ('SMA', (200,)),
-                              ('EMA', (12,)),
-                              ('EMA', (26, ))]
-    _store_signals_default = [('CROSSOVERS', ('SMA_50', 'SMA_200')),
-                              ('TREND', ('SMA_50', 2)),
-                              ('PRICECROSS', ('SMA_50', )),
-                              ('MACDCROSS', ('EMA_12', 'EMA_26', 'EMA', 9)),
-                              ('RSICROSS', (14, 30, 70))]
+                                 ('adx', (14,)),
+                                 ('rsi', (14,)),
+                                 ('atr', (14,)),
+                                 ('bb', (20, 2)),
+                                 ('cmf', (20,)),
+                                 ('dc', (20, 0)),
+                                 ('kc', (20, 10)),
+                                 ('mfi', (14,)),
+                                 ('obv', ()),
+                                 ('psar', (0.02, 0.2)),
+                                 ('roc', (12,)),
+                                 ('so', (14, 3)),
+                                 ('vwap', (14,)),
+                                ]
+    _store_signals_default = [('crossovers', ('sma_50', 'sma_200')),
+                              ('trend', ('sma_50', 2)),
+                              ('pricecross', ('sma_50',)),
+                              ('macdcross', (12, 26)),
+                              ('rsicross', (30, 70)),
+                             ]
 
-    def __init__(self, asset, data=None, url_scheme=str, root_path='data/', store_indicators=None, store_metrics=None,
-                 store_signals=None, info=None):
+    def __init__(self, asset, data=None, url_scheme=str, root_path='data/', store_indicators=None, store_signals=None,
+                 info=None):
         self._asset = asset
         self._url_scheme = url_scheme
         self._root_path = root_path
         self._store_indicators = self._store_indicators_default if store_indicators is None else store_indicators
-        self._store_metrics = self._store_metrics_default if store_metrics is None else store_metrics
         self._store_signals = self._store_signals_default if store_signals is None else store_signals
         self._cached = False
         self._indicators = Indicators(self, store_indicators=self.store_indicators)
-        self._metrics = Metrics(self, store_metrics=self.store_metrics)
         self._signals = Signals(self, store_signals=self.store_signals)
         self._info = info
         if data is not None:
@@ -308,7 +305,7 @@ class Kline(_Kline):
                                                    convention=convention, kind=kind, loffset=loffset, base=base,
                                                    level=level, origin=origin, offset=offset), 'agg')(agg_dict)
         return Kline(asset=self.asset, data=data, url_scheme=self._url_scheme, root_path=self._root_path,
-                     store_metrics=self._store_metrics, store_signals=self._store_signals, info=self._info)
+                     store_indicators=self._store_indicators, store_signals=self._store_signals, info=self._info)
 
 
 class _Indicators(pd.DataFrame):
@@ -317,11 +314,26 @@ class _Indicators(pd.DataFrame):
     """
     _metadata = ['_kline', '_cached', '_store_indicators']
     _ta_map = {
+        'obv': ['volume', 'OnBalanceVolumeIndicator', ['close', 'volume'], ['on_balance_volume']],
+        'mfi': ['volume', 'MFIIndicator', ['high', 'low', 'close', 'volume'], ['money_flow_index']],
+        'cmf': ['volume', 'ChaikinMoneyFlowIndicator', ['high', 'low', 'close', 'volume'], ['chaikin_money_flow']],
+        'vwap': ['volume', 'VolumeWeightedAveragePrice', ['high', 'low', 'close', 'volume'],
+                 ['volume_weighted_average_price']],
+        'atr': ['volatility', 'AverageTrueRange', ['high', 'low', 'close'], ['average_true_range']],
+        'bb': ['volatility', 'BollingerBands', ['close'], ['bollinger_hband', 'bollinger_mavg', 'bollinger_lband']],
+        'kc': ['volatility', 'KeltnerChannel', ['high', 'low', 'close'], ['keltner_channel_hband',
+               'keltner_channel_mband', 'keltner_channel_lband']],
+        'dc': ['volatility', 'DonchianChannel', ['high', 'low', 'close'], ['donchian_channel_hband',
+               'donchian_channel_mband', 'donchian_channel_lband']],
         'sma': ['trend', 'SMAIndicator', ['close'], ['sma_indicator']],
         'ema': ['trend', 'EMAIndicator', ['close'], ['ema_indicator']],
         'wma': ['trend', 'WMAIndicator', ['close'], ['wma']],
         'macd': ['trend', 'MACD', ['close'], ['macd', 'macd_signal', 'macd_diff']],
-        'adx': ['trend', 'ADXIndicator', ['high', 'low', 'close'], ['adx', 'adx_pos', 'adx_neg']]
+        'adx': ['trend', 'ADXIndicator', ['high', 'low', 'close'], ['adx', 'adx_pos', 'adx_neg']],
+        'psar': ['trend', 'PSARIndicator', ['high', 'low', 'close'], ['psar', 'psar_up', 'psar_down']],
+        'rsi': ['momentum', 'RSIIndicator', ['close'], ['rsi']],
+        'roc': ['momentum', 'ROCIndicator', ['close'], ['roc']],
+        'so': ['momentum', 'StochasticOscillator', ['close', 'high', 'low'], ['stoch', 'stoch_signal']],
     }
 
     @property
@@ -359,7 +371,7 @@ class _Indicators(pd.DataFrame):
             computed_indicators.append(getattr(ta_class, method_name)())
         return pd.concat(computed_indicators, axis=1)
 
-    def append(self, computed_indicator, *args, **kwargs):
+    def append(self, computed_indicator):
         """Append an indicator.
         """
         for column in computed_indicator:
@@ -370,7 +382,7 @@ class _Indicators(pd.DataFrame):
         """Compute and append an indicator.
         """
         computed_indicator = self.compute(indicator, *args, **kwargs)
-        self.append(computed_indicator, *args, **kwargs)
+        self.append(computed_indicator)
         return None
 
 
@@ -400,125 +412,6 @@ class Indicators(_Indicators):
                     fun = indicator
                 self.extend(fun, *args)
         return super(Indicators, self).__getattr__(attr_name)
-
-
-
-class _Metrics(pd.DataFrame):
-    """
-    Pandas DataFrame subclass with custom metadata and constructor for Metrics class.
-    """
-    _metadata = ['_kline', '_cached', '_store_metrics']
-
-    @property
-    def _constructor(self):
-        """Requirement for correct pd.DataFrame subclassing.
-        """
-        return _Metrics
-
-    @property
-    def kline(self):
-        """Get underlying kline.
-        """
-        return self._kline
-
-    @property
-    def cached(self):
-        """Get cached indicator.
-        """
-        return self._cached
-
-    @property
-    def store_metrics(self):
-        """Get stored metrics list.
-        """
-        return self._store_metrics
-
-    def compute(self, metric, *args, **kwargs):
-        """Compute a metric.
-        """
-        fun = metric
-        computed_metric = getattr(self, '_compute_metric_'+fun)(self.kline, *args, **kwargs)
-        return computed_metric
-
-    def append(self, computed_metric, metric, *args, **kwargs):
-        """Append a metric.
-        """
-        str_args = '_' + '_'.join([str(_) for _ in args]) if len(args) > 0 else ''
-        str_kwargs = '_' + '_'.join([str(kwargs[_]) for _ in kwargs]) if len(kwargs) > 0 else ''
-        metric_name = metric + str_args + str_kwargs
-        self.loc[:, metric_name] = computed_metric
-        return None
-
-    def extend(self, metric, *args, **kwargs):
-        """Compute and append a metric.
-        """
-        computed_metric = self.compute(metric, *args, **kwargs)
-        self.append(computed_metric, metric, *args, **kwargs)
-        return None
-
-    @staticmethod
-    def _compute_metric_SMA(kline, window=50):
-        sma = kline.close.rolling(window).mean()
-        return sma
-
-    @staticmethod
-    def _compute_metric_EMA(kline, window=50):
-        # d = dict()
-        multiplier = 2/(window+1)
-        ema_yesterday = kline.close.iloc[:window].mean()
-        emas = []
-        for i in range(len(kline.close)):
-            ema_today = (kline.close.iloc[i]*multiplier)+(ema_yesterday*(1-multiplier))
-            emas.append(ema_today)
-            ema_yesterday = ema_today
-        emas = pd.Series(emas, index=kline.index)
-        return emas
-
-    @staticmethod
-    def _compute_metric_WMA(kline, window=50, data=None):
-        data = [] if data is None else data
-        p = kline.close if len(data)==0 else pd.Series(data)
-        p_wma = pd.Series(data=[0]*len(p), index=p.index)
-        # TBO.
-        for i,j in zip(range(window), range(window)[::-1]):
-            p_wma += p.shift(i)*(j+1)
-        return p_wma/(np.sum(range(1,window+1)))
-
-    @staticmethod
-    def _compute_metric_HMA(kline, window=50):
-        wma_n = getattr(Metrics, '_compute_metric_WMA')(kline=kline, window=window)
-        wma_n2 = getattr(Metrics, '_compute_metric_WMA')(kline=kline, window=int(window/2))
-        hma = getattr(Metrics, '_compute_metric_WMA')(kline=[], data=(2*wma_n2-wma_n), window=int(np.sqrt(window)))
-        return hma
-
-class Metrics(_Metrics):
-    """
-    Object for asset-specific metrics manipulations.
-
-    Args:
-        kline (Kline): Kline from which to get info to compute metrics.
-        store_metrics (list): Metric names to store in memory.
-    """
-    def __init__(self, kline, store_metrics):
-        self._kline=kline
-        self._cached=False
-        self._store_metrics=store_metrics
-        # super().__init__()
-
-    def __getattr__(self, attr_name):
-        if not self._cached:
-            self._cached=True
-            data=pd.DataFrame(data=[], index=self.kline.index)
-            super(Metrics, self).__init__(data=data)
-            for metric in self.store_metrics:
-                try:
-                    fun, args = metric
-                except ValueError:
-                    fun = metric
-                self.extend(fun, *args)
-        return super(Metrics, self).__getattr__(attr_name)
-
-
 
 
 class _Signals(pd.DataFrame):
@@ -573,17 +466,17 @@ class _Signals(pd.DataFrame):
         return None
 
     @staticmethod
-    def _compute_signal_CROSSOVERS(kline, fast_metric='SMA_50', slow_metric='SMA_200', buffer=.0001):
-        sl_diff = (getattr(kline.metrics, fast_metric) -
-                   getattr(kline.metrics, slow_metric))/getattr(kline.metrics, fast_metric)
+    def _compute_signal_crossovers(kline, fast_indicator='sma_50', slow_indicator='sma_200', buffer=.0001):
+        sl_diff = (getattr(kline.indicators, fast_indicator) -
+                   getattr(kline.indicators, slow_indicator))/getattr(kline.indicators, fast_indicator)
         # crossovers = ((sl_diff > 0) & (sl_diff > sl_diff.shift(1))).map({True: 1., False: -1.})
         bins = [-float('inf'), -buffer, buffer+1e-10, float('inf')]
         cuts = pd.cut(sl_diff, bins=bins, duplicates='drop', labels=False)-1.
         return cuts.where(cuts != 1, cuts.where(sl_diff.diff(1) > 0, 0))
 
     @staticmethod
-    def _compute_signal_TREND(kline, metric='SMA_50', repeat=2, buffer=.0001):
-        ydiff = getattr(kline.metrics, metric).pct_change(1)
+    def _compute_signal_trend(kline, indicator='sma_50', repeat=2, buffer=.0001):
+        ydiff = getattr(kline.indicators, indicator).pct_change(1)
         index_diff = kline.index.to_series().diff(1)
         seconds_per_step = index_diff.value_counts().index[0].total_seconds()
         xdiff = (index_diff.dt.total_seconds()/seconds_per_step).replace(0, np.nan)
@@ -595,40 +488,24 @@ class _Signals(pd.DataFrame):
         return slopes_bins_rolling.where(mask).fillna(0).clip(-1., 1.)
 
     @staticmethod
-    def _compute_signal_PRICECROSS(kline, metric='SMA_50', buffer=.0001):
-        price_metric_diff = (kline.close - getattr(kline.metrics, metric))/kline.close
+    def _compute_signal_pricecross(kline, indicator='sma_50', buffer=.0001):
+        price_indicator_diff = (kline.close - getattr(kline.indicators, indicator))/kline.close
         bins = [-float('inf'), -buffer, buffer+1e-10, float('inf')]
-        return pd.cut(price_metric_diff, bins=bins, duplicates='drop', labels=False)-1.
+        return pd.cut(price_indicator_diff, bins=bins, duplicates='drop', labels=False)-1.
 
     @staticmethod
-    def _compute_signal_MACDCROSS(kline, fast_metric='EMA_12', slow_metric='EMA_26', signal='EMA', window=9,
-                                  buffer=.0001):
-        macd = (getattr(kline.metrics, fast_metric)-getattr(kline.metrics, slow_metric))
-        signal_line = getattr(Metrics, '_compute_metric_'+signal)(macd.rename('close').to_frame(), window=window)
-        macd_signal_diff = (macd - signal_line)/macd
-        return macd_signal_diff
-        # bins = [-float('inf'), -buffer, buffer+1e-10, float('inf')]
-        # return pd.cut(macd_signal_diff, bins=bins, duplicates='drop', labels=False)-1.
-
-    @staticmethod
-    def _compute_signal_MACDCROSS2(kline, fast=12, slow=26, window=9, buffer=.0001):
-        macd = getattr(kline.indicators, 'macd_{}_{}'.format(fast, slow))
-        macd_diff = getattr(kline.indicators, 'macd_diff_{}_{}'.format(fast, slow))
+    def _compute_signal_macdcross(kline, fast_window=12, slow_window=26, buffer=.0001):
+        macd = getattr(kline.indicators, 'macd_{}_{}'.format(fast_window, slow_window))
+        macd_diff = getattr(kline.indicators, 'macd_diff_{}_{}'.format(fast_window, slow_window))
         macd_signal_diff = macd_diff/macd
-        return macd_signal_diff
-        # bins = [-float('inf'), -buffer, buffer+1e-10, float('inf')]
-        # return pd.cut(macd_signal_diff, bins=bins, duplicates='drop', labels=False)-1.
+        bins = [-float('inf'), -buffer, buffer+1e-10, float('inf')]
+        return pd.cut(macd_signal_diff, bins=bins, duplicates='drop', labels=False)-1.
 
     @staticmethod
-    def _compute_signal_RSICROSS(kline, window=14, lower=30, upper=70):
-        pct_gain = kline.close.pct_change().clip(lower=0)
-        pct_loss = kline.close.pct_change().clip(upper=0).abs()
-        avg_gain = pct_gain.rolling(window).mean()
-        avg_loss = pct_loss.rolling(window).mean()
-        smoothed_avg_gain = ((avg_gain.shift(1)*(window-1))+pct_gain)/window
-        smoothed_avg_loss = ((avg_loss.shift(1)*(window-1))+pct_loss)/window
-        rsi = 100-(100/(1+(smoothed_avg_gain/smoothed_avg_loss)))
+    def _compute_signal_rsicross(kline, lower=30, upper=70): # window=14
+        rsi = getattr(kline.indicators, 'rsi')
         return -(pd.cut(rsi, bins=[-float('inf'), lower, upper, float('inf')], labels=False)-1.)
+
 
 class Signals(_Signals):
     """

@@ -27,7 +27,7 @@ class Klines(dict):
         else:
             super(Klines, self).__init__(zip([kline.asset for kline in klines], klines))
         try:
-            for col in (self.listedvalues()[0].columns.tolist())+['metrics', 'signals']:
+            for col in (self.listedvalues()[0].columns.tolist())+['indicators', 'signals']:
                 self._add_dynamic_fct(col)
         except IndexError:
             pass
@@ -112,7 +112,7 @@ class KLMngr(Klines):
         client: Connection client to the crypto exchange.
         url_scheme (type): Function for the desired url-scheme. Defaults to str.
         root_path (str): Root path of the stored data.
-        store_metrics (iterable): List of metrics to store.
+        store_indicators (iterable): List of indicators to store.
         store_signals (iterable): List of signals to store.
     """
     _metadata_path = 'metadata/info.csv'
@@ -120,12 +120,12 @@ class KLMngr(Klines):
                   'stepSize', 'last_update']
 
     def __init__(self, quotes_or_assets=None, klines=None, client=None, url_scheme=str, root_path='data/',
-                             store_metrics=None, store_signals=None):
+                             store_indicators=None, store_signals=None):
         self._quotes_or_assets = quotes_or_assets
         self._client = client
         self._url_scheme = url_scheme
         self._root_path = root_path
-        self._store_metrics = store_metrics
+        self._store_indicators = store_indicators
         self._store_signals = store_signals
         self._get_info()
         if quotes_or_assets is not None:
@@ -133,7 +133,7 @@ class KLMngr(Klines):
         elif klines is not None:
             self.from_klines(klines)
         # try:
-        #     for col in (self.listedvalues()[0].columns.tolist())+['metrics', 'signals']:
+        #     for col in (self.listedvalues()[0].columns.tolist())+['indicators', 'signals']:
         #         self._add_dynamic_fct(col)
         # except IndexError:
         #     pass
@@ -194,7 +194,7 @@ class KLMngr(Klines):
         """
         assets = self.find_assets(quotes_or_assets)
         klines = [Kline(asset=asset, url_scheme=self._url_scheme, root_path=self._root_path+'data/',
-                                        store_metrics=self._store_metrics,
+                                        store_indicators=self._store_indicators,
                                         store_signals=self._store_signals,
                                         info=self.info.loc[asset])
                             for asset in assets]
