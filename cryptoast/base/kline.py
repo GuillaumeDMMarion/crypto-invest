@@ -1,12 +1,14 @@
 """
 Objects for unique assets.
 """
+import warnings
 from datetime import datetime
 import time
 import ta
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 # from requests.exceptions import ReadTimeout
 
 
@@ -172,24 +174,25 @@ class _Kline(pd.DataFrame):
         path_or_buf = self._open(self.root_path+self.asset+'.csv', mode='w')
         self.to_csv(path_or_buf=path_or_buf, sep=';')
 
-    def plot(self, size=180, indicators=None, signals=None, rangeslider=False, fig=None):
+    def plot(self, size=180, indicators=None, signals=None, rangeslider=False, secondary=False, fig=None):
         """
         Args:
             size (int): The number of ticks in the past for which to plot the desired graph.
             indicators (list): List of indicators to plot.
             signals (list): List of signals to plot.
             rangeslides (bool): Whether to plot a rangeslider or not.
-            fig (plotly.graph_objs.Figure): An exising plotly figure on which to plot.
+            secondary (bool or list): Whether or not, or which indicator to plot on a secondary axis.
+            fig (plotly.graph_objs.Figure): An existing plotly figure on which to plot.
 
         Returns:
             None. Plots the assets "open-high-low-close" data in candlestick style,
             overlayed with the desired indicators/signals.
         """
-        fig = go.Figure() if fig is None else fig
+        fig = make_subplots(specs=[[{"secondary_y": True}]]) if fig is None else fig
         signals, indicators = [([] if s_or_m is None else s_or_m) for s_or_m in (signals, indicators)]
         colors = ["#f94144", "#f3722c", "#f8961e", "#f9844a", "#f9c74f", "#90be6d", "#43aa8b", "#4d908e",
                   "#577590", "#277da1"]
-        y_min, y_max = self.low[-size:].min(), self.high[-size:].max()
+        _, y_max = self.low[-size:].min(), self.high[-size:].max()
         fig.add_trace(go.Candlestick(x=self.index[-size:],
                                      open=self.open[-size:],
                                      high=self.high[-size:],
@@ -198,10 +201,12 @@ class _Kline(pd.DataFrame):
                                      name=self.name))
         for i, indicator in enumerate(indicators):
             color_index = int(i/len(indicators)*len(colors))
+            secondary_y = secondary if isinstance(secondary, bool) else (indicator in secondary)
             fig.add_trace(go.Scatter(x=self.index[-size:],
                                      y=self.indicators.loc[:, indicator][-size:],
                                      line=dict(color=colors[color_index]),
-                                     name=indicator))
+                                     name=indicator,
+                                     ), secondary_y=secondary_y)
         for signal in signals:
             signal_data = self.signals.loc[:, signal]
             fig.add_trace(go.Scatter(x=self.index[-size:],
@@ -218,7 +223,7 @@ class _Kline(pd.DataFrame):
                                      visible='legendonly',
                                      name=signal+'-SELL'))
         fig.update_layout(xaxis_rangeslider_visible=rangeslider)
-        fig.update_yaxes(range=[y_min, y_max])
+        # fig.update_yaxes(range=[y_min, y_max])
         fig.show()
 
 class Kline(_Kline):
@@ -254,6 +259,8 @@ class Kline(_Kline):
                                  ('roc', (12,)),
                                  ('so', (14, 3)),
                                  ('vwap', (14,)),
+                                 ('dr', ()),
+                                 ('dlr', ()),
                                 ]
     _store_signals_default = [('crossovers', ('sma_50', 'sma_200')),
                               ('trend', ('sma_50', 2)),
@@ -313,7 +320,7 @@ class _Indicators(pd.DataFrame):
     Pandas DataFrame subclass with custom metadata and constructor for Indicators class.
     """
     _metadata = ['_kline', '_cached', '_store_indicators']
-    _ta_map = {
+    _ta_compute_map = {
         'obv': ['volume', 'OnBalanceVolumeIndicator', ['close', 'volume'], ['on_balance_volume']],
         'mfi': ['volume', 'MFIIndicator', ['high', 'low', 'close', 'volume'], ['money_flow_index']],
         'cmf': ['volume', 'ChaikinMoneyFlowIndicator', ['high', 'low', 'close', 'volume'], ['chaikin_money_flow']],
@@ -334,6 +341,13 @@ class _Indicators(pd.DataFrame):
         'rsi': ['momentum', 'RSIIndicator', ['close'], ['rsi']],
         'roc': ['momentum', 'ROCIndicator', ['close'], ['roc']],
         'so': ['momentum', 'StochasticOscillator', ['close', 'high', 'low'], ['stoch', 'stoch_signal']],
+        'dr': ['others', 'DailyReturnIndicator', ['close'], ['daily_return']],
+        'dlr': ['others', 'DailyLogReturnIndicator', ['close'], ['daily_log_return']],
+    }
+    _ta_name_map = {
+        'bb': ['bb_hband', 'bb_mband', 'bb_lband'],
+        'dc': ['dc_hband', 'dc_mband', 'dc_lband'],
+        'kc': ['kc_hband', 'kc_mband', 'kc_lband'],
     }
 
     @property
@@ -363,13 +377,18 @@ class _Indicators(pd.DataFrame):
     def compute(self, indicator, *args, **kwargs):
         """Compute an indicator.
         """
-        module_name, class_name, value_names, method_names = self._ta_map[indicator]
+        module_name, class_name, value_names, method_names = self._ta_compute_map[indicator]
         default_args = (getattr(self.kline, value_name) for value_name in value_names)
         ta_class = getattr(getattr(ta, module_name), class_name)(*default_args, *args, **kwargs)
         computed_indicators = []
         for method_name in method_names:
-            computed_indicators.append(getattr(ta_class, method_name)())
-        return pd.concat(computed_indicators, axis=1)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                computed_indicators.append(getattr(ta_class, method_name)())
+        df_indicators = pd.concat(computed_indicators, axis=1)
+        if indicator in self._ta_name_map:
+            df_indicators.columns = self._ta_name_map[indicator]
+        return df_indicators
 
     def append(self, computed_indicator):
         """Append an indicator.
@@ -446,7 +465,9 @@ class _Signals(pd.DataFrame):
         """Compute a signal.
         """
         fun = signal
-        computed_signal = getattr(self, '_compute_signal_'+fun)(self.kline, *args, **kwargs)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            computed_signal = getattr(self, '_compute_signal_'+fun)(self.kline, *args, **kwargs)
         return computed_signal
 
     def append(self, computed_signal, signal, *args, **kwargs):

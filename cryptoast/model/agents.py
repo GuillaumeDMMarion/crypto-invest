@@ -205,18 +205,19 @@ class Backtest():
 class SingleAssetEnv(gym.Env):
     """Single Asset Environment.
     """
-    rel_indicators_stem = ('sma', 'ema', 'wma', 'hband', 'lband', 'mavg', 'dchband', 'dcmband', 'dclband', 'kc_hband',
-                           'kc_lband', 'psar', 'vwap')
-    abs_indicators_stem = ('macd', 'adx', 'rsi', 'atr', 'cmf', 'mfi', 'obv', 'roc', 'stoch')
+    _rel_indicators_stem = ('sma', 'ema', 'wma', 'bb', 'dc', 'kc', 'psar', 'vwap')
+    _abs_indicators_stem = ('macd', 'adx', 'rsi', 'atr', 'cmf', 'mfi', 'roc', 'stoch', 'd_ret', 'd_logret')
 
     def __init__(self, klmngr, assets, backtest=None, window=24, datetimes=None, randomize_start=True, allow_gaps=False,
                  episode_steps=-1):
         super().__init__()
 
         self.action_space = gym.spaces.Discrete(3)
-        self.obs_cols = 30 #  # len(klmngr._store_indicators)+1
-        self.observation_space = gym.spaces.Box(low=-100, high=100, shape=(window*(self.obs_cols+2),), dtype=np.float32)
-
+        self.obs_cols = klmngr[klmngr.assets[0]].indicators.columns.size
+        self.observation_space = gym.spaces.Box(low=-np.inf,
+                                                high=np.inf,
+                                                shape=(window*(self.obs_cols+1),),
+                                                dtype=np.float32)
         self.klmngr = klmngr
         self.assets = assets
         self.backtest = Backtest() if backtest is None else backtest
@@ -319,13 +320,21 @@ class SingleAssetEnv(gym.Env):
         while True:
             try:
                 value_t0 = getattr(self.backtest, '_periodic')[previous_timestamp]['value']
+                price_t0 = getattr(self.kline, 'close')[previous_timestamp]
                 break
             except KeyError:
                 previous_timestamp -= timedelta(hours=1)
         value_t1 = getattr(self.backtest, '_periodic')[timestamp]['value']
-        reward = (value_t1-value_t0)/value_t0
-        reward = reward-1 if reward <= 0 else 1+reward
-        return reward
+        price_t1 = getattr(self.kline, 'close')[timestamp]
+        # reward = (value_t1-value_t0)/value_t0
+        # reward = reward-1 if reward <= 0 else 1+reward
+        # return reward
+        # value_d = ((value_t1-value_t0)/value_t0)
+        # price_d = ((price_t1-price_t0)/price_t0)
+        # return value_d / price_d
+        amount_t0 = value_t0 / price_t0
+        return (value_t1 - value_t0) - (amount_t0*price_t1 - amount_t0*price_t0)
+
 
     def get_info(self):
         """Get info.
@@ -357,8 +366,8 @@ class SingleAssetEnv(gym.Env):
         self.scaler = None
         self.kline = kline
         self.backtest.from_kline(kline, start_index=index)
-        self.rel_indicators = self.kline.indicators.columns.to_series().str.startswith(self.rel_indicators_stem)
-        self.abs_indicators = self.kline.indicators.columns.to_series().str.startswith(self.abs_indicators_stem)
+        self.rel_indicators = self.kline.indicators.columns.to_series().str.startswith(self._rel_indicators_stem)
+        self.abs_indicators = self.kline.indicators.columns.to_series().str.startswith(self._abs_indicators_stem)
         observation = self.get_observation(timestamp=timestamp, window=self.window)
         return observation
 
