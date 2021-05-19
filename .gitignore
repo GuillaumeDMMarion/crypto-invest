@@ -109,5 +109,4 @@ tmp.py
 /data-bucket
 *.backup.*
 *.vscode
-/models/logs
-/notebooks/models
+/models
