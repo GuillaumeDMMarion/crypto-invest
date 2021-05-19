@@ -226,8 +226,7 @@ class SingleAssetEnv(gym.Env):
         self.randomize_start = randomize_start
         self.allow_gaps = allow_gaps
         self.episode_steps = episode_steps
-
-        self.reset() # sets backtest, kline, scaler and current_step
+        self.reset()
 
     @staticmethod
     def get_datetimes(datetimes):
@@ -249,7 +248,7 @@ class SingleAssetEnv(gym.Env):
     def get_observation(self, timestamp, window):
         """Get observation.
         """
-        timestamp = timestamp + pd.Timedelta(days=1)
+        # timestamp = timestamp + pd.Timedelta(days=1)
         close_values = self.kline.loc[:timestamp, :].close.values[-window:].reshape(-1, 1)
         abs_indicator_values = self.kline.indicators.loc[:timestamp, self.abs_indicators].fillna(-1).values[-window:]
         rel_indicator_values = self.kline.indicators.loc[:timestamp, self.rel_indicators].fillna(-1).values[-window:]
@@ -263,7 +262,7 @@ class SingleAssetEnv(gym.Env):
     def get_observation_old(self, timestamp, window):
         """Get observation.
         """
-        timestamp = timestamp + pd.Timedelta(days=1)
+        # timestamp = timestamp + pd.Timedelta(days=1)
         close_values = self.kline.loc[:timestamp, :].close.values[-window:].reshape(-1, 1)
         # indicator_values = self.kline.indicators.loc[:timestamp, :].fillna(-1).values[-window:]
         periodic_values = np.array(self.backtest.history)[:, :2]
