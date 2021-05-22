@@ -212,12 +212,6 @@ class SingleAssetEnv(gym.Env):
                  episode_steps=-1):
         super().__init__()
 
-        self.action_space = gym.spaces.Discrete(3)
-        self.obs_cols = klmngr[klmngr.assets[0]].indicators.columns.size
-        self.observation_space = gym.spaces.Box(low=-np.inf,
-                                                high=np.inf,
-                                                shape=(window*(self.obs_cols+1),),
-                                                dtype=np.float32)
         self.klmngr = klmngr
         self.assets = assets
         self.backtest = Backtest() if backtest is None else backtest
@@ -226,6 +220,15 @@ class SingleAssetEnv(gym.Env):
         self.randomize_start = randomize_start
         self.allow_gaps = allow_gaps
         self.episode_steps = episode_steps
+        self.action_space = gym.spaces.Discrete(3)
+        self.obs_cols = klmngr[klmngr.assets[0]].indicators.columns.to_series()
+        self.rel_indicators = self.obs_cols.str.startswith(self._rel_indicators_stem)
+        self.abs_indicators = self.obs_cols.str.startswith(self._abs_indicators_stem)
+        self.n_obs_cols = self.rel_indicators.sum() + self.abs_indicators.sum()
+        self.observation_space = gym.spaces.Box(low=-np.inf,
+                                                high=np.inf,
+                                                shape=(window*self.n_obs_cols+2*self.backtest.memory,),
+                                                dtype=np.float32)
         self.reset()
 
     @staticmethod
@@ -252,7 +255,7 @@ class SingleAssetEnv(gym.Env):
         close_values = self.kline.loc[:timestamp, :].close.values[-window:].reshape(-1, 1)
         abs_indicator_values = self.kline.indicators.loc[:timestamp, self.abs_indicators].fillna(-1).values[-window:]
         rel_indicator_values = self.kline.indicators.loc[:timestamp, self.rel_indicators].fillna(-1).values[-window:]
-        observation = np.hstack((abs_indicator_values, rel_indicator_values / close_values))
+        observation = np.hstack((abs_indicator_values, rel_indicator_values / close_values[-1]))
         periodic_values = np.array(self.backtest.history)[:, :2]
         transactions_history = np.hstack([0, 0] +
                                          [(periodic_values[:-1, _] != periodic_values[1:, _]).astype(int)
@@ -332,7 +335,9 @@ class SingleAssetEnv(gym.Env):
         # price_d = ((price_t1-price_t0)/price_t0)
         # return value_d / price_d
         amount_t0 = value_t0 / price_t0
-        return (value_t1 - value_t0) - (amount_t0*price_t1 - amount_t0*price_t0)
+        reward = (value_t1 - value_t0) - (amount_t0*price_t1 - amount_t0*price_t0)
+        reward = -1 if reward == 0 else reward
+        return reward
 
 
     def get_info(self):
@@ -365,8 +370,6 @@ class SingleAssetEnv(gym.Env):
         self.scaler = None
         self.kline = kline
         self.backtest.from_kline(kline, start_index=index)
-        self.rel_indicators = self.kline.indicators.columns.to_series().str.startswith(self._rel_indicators_stem)
-        self.abs_indicators = self.kline.indicators.columns.to_series().str.startswith(self._abs_indicators_stem)
         observation = self.get_observation(timestamp=timestamp, window=self.window)
         return observation
 
