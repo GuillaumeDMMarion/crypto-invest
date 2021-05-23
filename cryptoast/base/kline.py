@@ -301,6 +301,18 @@ class Kline(_Kline):
         """
         return self.resample(rule='D')
 
+    @property
+    def weekly(self):
+        """Weekly resample.
+        """
+        return self.resample(rule='W')
+
+    @property
+    def monthly(self):
+        """Monthly resample.
+        """
+        return self.resample(rule='M')
+
     def resample(self, rule, axis=0, closed=None, label=None, convention='start', kind=None,
                  loffset=None, base=None, on=None, level=None, origin='start_day', offset=None):
         """Resample.

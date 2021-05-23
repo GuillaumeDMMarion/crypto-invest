@@ -322,21 +322,20 @@ class SingleAssetEnv(gym.Env):
         while True:
             try:
                 value_t0 = getattr(self.backtest, '_periodic')[previous_timestamp]['value']
-                price_t0 = getattr(self.kline, 'close')[previous_timestamp]
+                # price_t0 = getattr(self.kline, 'close')[previous_timestamp]
                 break
             except KeyError:
                 previous_timestamp -= timedelta(hours=1)
         value_t1 = getattr(self.backtest, '_periodic')[timestamp]['value']
-        price_t1 = getattr(self.kline, 'close')[timestamp]
-        # reward = (value_t1-value_t0)/value_t0
+        # price_t1 = getattr(self.kline, 'close')[timestamp]
+        reward = (value_t1-value_t0)/value_t0
         # reward = reward-1 if reward <= 0 else 1+reward
-        # return reward
         # value_d = ((value_t1-value_t0)/value_t0)
         # price_d = ((price_t1-price_t0)/price_t0)
         # return value_d / price_d
-        amount_t0 = value_t0 / price_t0
-        reward = (value_t1 - value_t0) - (amount_t0*price_t1 - amount_t0*price_t0)
-        reward = -1 if reward == 0 else reward
+        # amount_t0 = value_t0 / price_t0
+        # reward = (value_t1 - value_t0) - (amount_t0*price_t1 - amount_t0*price_t0)
+        # reward = -1 if reward == 0 else reward
         return reward
 
 
