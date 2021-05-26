@@ -267,6 +267,10 @@ class Kline(_Kline):
                               ('pricecross', ('sma_50',)),
                               ('macdcross', (12, 26)),
                               ('rsicross', (30, 70)),
+                              ('adxcross', (25,)),
+                              ('atrfilter', ('sma_50', .04)),
+                              ('bbcross', ()),
+                              ('cmfcross', (.1,))
                              ]
 
     def __init__(self, asset, data=None, url_scheme=str, root_path='data/', store_indicators=None, store_signals=None,
@@ -502,10 +506,10 @@ class _Signals(pd.DataFrame):
     def _compute_signal_crossovers(kline, fast_indicator='sma_50', slow_indicator='sma_200', buffer=.0001):
         sl_diff = (getattr(kline.indicators, fast_indicator) -
                    getattr(kline.indicators, slow_indicator))/getattr(kline.indicators, fast_indicator)
-        # crossovers = ((sl_diff > 0) & (sl_diff > sl_diff.shift(1))).map({True: 1., False: -1.})
         bins = [-float('inf'), -buffer, buffer+1e-10, float('inf')]
         cuts = pd.cut(sl_diff, bins=bins, duplicates='drop', labels=False)-1.
-        return cuts.where(cuts != 1, cuts.where(sl_diff.diff(1) > 0, 0))
+        cuts = cuts.where(cuts != 1, cuts.where(sl_diff.diff(1) > 0, 0))
+        return cuts
 
     @staticmethod
     def _compute_signal_trend(kline, indicator='sma_50', repeat=2, buffer=.0001):
@@ -515,16 +519,17 @@ class _Signals(pd.DataFrame):
         xdiff = (index_diff.dt.total_seconds()/seconds_per_step).replace(0, np.nan)
         slopes = (ydiff/xdiff)
         bins = [-float('inf'), -buffer, buffer+1e-10, float('inf')]
-        slopes_bins = pd.cut(slopes, bins=bins, duplicates='drop', labels=False)-1
-        slopes_bins_rolling = slopes_bins.rolling(repeat).sum()
-        mask = (slopes_bins_rolling <= -repeat) | (slopes_bins_rolling >= repeat)
-        return slopes_bins_rolling.where(mask).fillna(0).clip(-1., 1.)
+        cuts = pd.cut(slopes, bins=bins, duplicates='drop', labels=False)-1
+        cuts_rolling = cuts.rolling(repeat).sum()
+        cuts = cuts_rolling.where((cuts_rolling <= -repeat) | (cuts_rolling >= repeat)).fillna(0).clip(-1., 1.)
+        return cuts
 
     @staticmethod
     def _compute_signal_pricecross(kline, indicator='sma_50', buffer=.0001):
         price_indicator_diff = (kline.close - getattr(kline.indicators, indicator))/kline.close
         bins = [-float('inf'), -buffer, buffer+1e-10, float('inf')]
-        return pd.cut(price_indicator_diff, bins=bins, duplicates='drop', labels=False)-1.
+        cuts = pd.cut(price_indicator_diff, bins=bins, duplicates='drop', labels=False)-1.
+        return cuts
 
     @staticmethod
     def _compute_signal_macdcross(kline, fast_window=12, slow_window=26, buffer=.0001):
@@ -532,12 +537,49 @@ class _Signals(pd.DataFrame):
         macd_diff = getattr(kline.indicators, 'macd_diff_{}_{}'.format(fast_window, slow_window))
         macd_signal_diff = macd_diff/macd
         bins = [-float('inf'), -buffer, buffer+1e-10, float('inf')]
-        return pd.cut(macd_signal_diff, bins=bins, duplicates='drop', labels=False)-1.
+        cuts = pd.cut(macd_signal_diff, bins=bins, duplicates='drop', labels=False)-1.
+        return cuts
 
     @staticmethod
     def _compute_signal_rsicross(kline, lower=30, upper=70): # window=14
         rsi = getattr(kline.indicators, 'rsi')
-        return -(pd.cut(rsi, bins=[-float('inf'), lower, upper, float('inf')], labels=False)-1.)
+        bins = [-float('inf'), lower, upper, float('inf')]
+        cuts = -(pd.cut(rsi, bins=bins, labels=False)-1.)
+        return cuts
+
+    @staticmethod
+    def _compute_signal_adxcross(kline, threshold=25, buffer=.0001):
+        adx = getattr(kline.indicators, 'adx')
+        adx_pos = getattr(kline.indicators, 'adx_pos')
+        adx_neg = getattr(kline.indicators, 'adx_neg')
+        adx_diff = adx_pos / adx_neg
+        bins = [-float('inf'), 1-buffer, 1+buffer+1e-10, float('inf')]
+        cuts = pd.cut(adx_diff, bins=bins, duplicates='drop', labels=False)-1.
+        cuts = cuts.where(adx.gt(threshold), 0)
+        return cuts
+
+    @staticmethod
+    def _compute_signal_atrfilter(kline, indicator='sma_50', threshold=.04):
+        atr = getattr(kline.indicators, 'atr')
+        indicator = getattr(kline.indicators, indicator) if indicator else getattr(kline, 'close')
+        signal = (atr / indicator).lt(threshold).astype(int)
+        return signal
+
+    @staticmethod
+    def _compute_signal_bbcross(kline):
+        close = getattr(kline, 'close')
+        hband = getattr(kline.indicators, 'bb_hband')
+        lband = getattr(kline.indicators, 'bb_lband')
+        buy = close.gt(hband).astype(int)
+        sell = close.lt(lband).astype(int)*-1
+        return buy+sell
+
+    @staticmethod
+    def _compute_signal_cmfcross(kline, buffer=.1):
+        cmf = getattr(kline.indicators, 'cmf')
+        bins = [-float('inf'), -buffer, buffer+1e-10, float('inf')]
+        cuts = pd.cut(cmf, bins=bins, duplicates='drop', labels=False)-1.
+        return cuts
 
 
 class Signals(_Signals):

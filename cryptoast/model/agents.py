@@ -205,8 +205,8 @@ class Backtest():
 class SingleAssetEnv(gym.Env):
     """Single Asset Environment.
     """
-    _rel_indicators_stem = ('sma', 'ema', 'wma', 'bb', 'dc', 'kc', 'psar', 'vwap')
-    _abs_indicators_stem = ('macd', 'adx', 'rsi', 'atr', 'cmf', 'mfi', 'roc', 'stoch', 'd_ret', 'd_logret')
+    _rel_indicators_stem = ('sma', 'ema', 'wma', 'atr', 'bb', 'dc', 'kc', 'psar', 'vwap')
+    _abs_indicators_stem = ('macd', 'adx', 'rsi', 'cmf', 'mfi', 'roc', 'stoch', 'd_ret', 'd_logret')
 
     def __init__(self, klmngr, assets, backtest=None, window=24, datetimes=None, randomize_start=True, allow_gaps=False,
                  episode_steps=-1):
@@ -329,7 +329,7 @@ class SingleAssetEnv(gym.Env):
         value_t1 = getattr(self.backtest, '_periodic')[timestamp]['value']
         # price_t1 = getattr(self.kline, 'close')[timestamp]
         reward = (value_t1-value_t0)/value_t0
-        # reward = reward-1 if reward <= 0 else 1+reward
+        reward = reward-1 if reward <= 0 else 1+reward
         # value_d = ((value_t1-value_t0)/value_t0)
         # price_d = ((price_t1-price_t0)/price_t0)
         # return value_d / price_d
