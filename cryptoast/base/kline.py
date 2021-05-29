@@ -14,6 +14,71 @@ from plotly.subplots import make_subplots
 
 
 
+_kline_cols = ['open_time', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'quote_asset_volume',
+               'number_of_trades', 'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'n/a']
+_store_indicators_default = [('sma', (50,)),
+                             ('sma', (200,)),
+                             ('ema', (12,)),
+                             ('ema', (26,)),
+                             ('wma', (9,)),
+                             ('macd', (26, 12, 9)),
+                             ('adx', (14,)),
+                             ('rsi', (14,)),
+                             ('atr', (14,)),
+                             ('bb', (20, 2)),
+                             ('cmf', (20,)),
+                             ('dc', (20, 0)),
+                             ('kc', (20, 10)),
+                             ('mfi', (14,)),
+                             ('obv', ()),
+                             ('psar', (0.02, 0.2)),
+                             ('roc', (12,)),
+                             ('so', (14, 3)),
+                             ('vwap', (14,)),
+                             ('dr', ()),
+                             ('dlr', ()),
+                            ]
+_store_signals_default = [('pairedcross', ('sma_50', 'sma_200')),
+                          ('slope', ('sma_50', 2)),
+                          ('closecross', ('sma_50',)),
+                          ('macdcap', (12, 26)),
+                          ('rsicap', (30, 70)),
+                          ('adxcap', (25,)),
+                          ('atrcross', ('sma_50', .04)),
+                          ('bbcross', ()),
+                          ('cmfcap', (.1,))
+                         ]
+_ta_compute_map = {
+    'obv': ['volume', 'OnBalanceVolumeIndicator', ['close', 'volume'], ['on_balance_volume']],
+    'mfi': ['volume', 'MFIIndicator', ['high', 'low', 'close', 'volume'], ['money_flow_index']],
+    'cmf': ['volume', 'ChaikinMoneyFlowIndicator', ['high', 'low', 'close', 'volume'], ['chaikin_money_flow']],
+    'vwap': ['volume', 'VolumeWeightedAveragePrice', ['high', 'low', 'close', 'volume'],
+             ['volume_weighted_average_price']],
+    'atr': ['volatility', 'AverageTrueRange', ['high', 'low', 'close'], ['average_true_range']],
+    'bb': ['volatility', 'BollingerBands', ['close'], ['bollinger_hband', 'bollinger_mavg', 'bollinger_lband']],
+    'kc': ['volatility', 'KeltnerChannel', ['high', 'low', 'close'], ['keltner_channel_hband', 'keltner_channel_mband',
+           'keltner_channel_lband']],
+    'dc': ['volatility', 'DonchianChannel', ['high', 'low', 'close'], ['donchian_channel_hband',
+           'donchian_channel_mband', 'donchian_channel_lband']],
+    'sma': ['trend', 'SMAIndicator', ['close'], ['sma_indicator']],
+    'ema': ['trend', 'EMAIndicator', ['close'], ['ema_indicator']],
+    'wma': ['trend', 'WMAIndicator', ['close'], ['wma']],
+    'macd': ['trend', 'MACD', ['close'], ['macd', 'macd_signal', 'macd_diff']],
+    'adx': ['trend', 'ADXIndicator', ['high', 'low', 'close'], ['adx', 'adx_pos', 'adx_neg']],
+    'psar': ['trend', 'PSARIndicator', ['high', 'low', 'close'], ['psar', 'psar_up', 'psar_down']],
+    'rsi': ['momentum', 'RSIIndicator', ['close'], ['rsi']],
+    'roc': ['momentum', 'ROCIndicator', ['close'], ['roc']],
+    'so': ['momentum', 'StochasticOscillator', ['close', 'high', 'low'], ['stoch', 'stoch_signal']],
+    'dr': ['others', 'DailyReturnIndicator', ['close'], ['daily_return']],
+    'dlr': ['others', 'DailyLogReturnIndicator', ['close'], ['daily_log_return']],
+}
+_ta_name_map = {
+    'bb': ['bb_hband', 'bb_mband', 'bb_lband'],
+    'dc': ['dc_hband', 'dc_mband', 'dc_lband'],
+    'kc': ['kc_hband', 'kc_mband', 'kc_lband'],
+}
+
+
 class _Kline(pd.DataFrame):
     """
     Pandas DataFrame subclass with custom metadata and constructor for Kline class.
@@ -132,8 +197,18 @@ class _Kline(pd.DataFrame):
                                               limit=999999999)
         timestamps = [kline[0]/1000 for kline in klines]
         datetimes = [datetime.utcfromtimestamp(timestamp) for timestamp in timestamps]
-        remote_df = pd.DataFrame(data=klines, columns=self._cols, index=datetimes, dtype=np.float64)
+        remote_df = pd.DataFrame(data=klines, columns=_kline_cols, index=datetimes, dtype=np.float64)
         return remote_df
+
+    def set_raw_signals(self, raw=True):
+        """
+        Args:
+            raw (bool): Whether to set raw signal param to True or not.
+
+        Returns:
+            None. Sets raw signal param to True or not.
+        """
+        self._signals.raw = raw
 
     def update(self, client, store=False, verbose=False, sleep=1):
         """
@@ -238,48 +313,14 @@ class Kline(_Kline):
         store_signals (iterable): List of signals to store.
         info (pd.Series): Inherited when initialized from KLMngr.
     """
-    _cols = ['open_time', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'quote_asset_volume',
-             'number_of_trades', 'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'n/a']
-    _store_indicators_default = [('sma', (50,)),
-                                 ('sma', (200,)),
-                                 ('ema', (12,)),
-                                 ('ema', (26,)),
-                                 ('wma', (9,)),
-                                 ('macd', (26, 12, 9)),
-                                 ('adx', (14,)),
-                                 ('rsi', (14,)),
-                                 ('atr', (14,)),
-                                 ('bb', (20, 2)),
-                                 ('cmf', (20,)),
-                                 ('dc', (20, 0)),
-                                 ('kc', (20, 10)),
-                                 ('mfi', (14,)),
-                                 ('obv', ()),
-                                 ('psar', (0.02, 0.2)),
-                                 ('roc', (12,)),
-                                 ('so', (14, 3)),
-                                 ('vwap', (14,)),
-                                 ('dr', ()),
-                                 ('dlr', ()),
-                                ]
-    _store_signals_default = [('crossovers', ('sma_50', 'sma_200')),
-                              ('trend', ('sma_50', 2)),
-                              ('pricecross', ('sma_50',)),
-                              ('macdcross', (12, 26)),
-                              ('rsicross', (30, 70)),
-                              ('adxcross', (25,)),
-                              ('atrfilter', ('sma_50', .04)),
-                              ('bbcross', ()),
-                              ('cmfcross', (.1,))
-                             ]
 
     def __init__(self, asset, data=None, url_scheme=str, root_path='data/', store_indicators=None, store_signals=None,
                  info=None):
         self._asset = asset
         self._url_scheme = url_scheme
         self._root_path = root_path
-        self._store_indicators = self._store_indicators_default if store_indicators is None else store_indicators
-        self._store_signals = self._store_signals_default if store_signals is None else store_signals
+        self._store_indicators = _store_indicators_default if store_indicators is None else store_indicators
+        self._store_signals = _store_signals_default if store_signals is None else store_signals
         self._cached = False
         self._indicators = Indicators(self, store_indicators=self.store_indicators)
         self._signals = Signals(self, store_signals=self.store_signals)
@@ -287,7 +328,7 @@ class Kline(_Kline):
         if data is not None:
             self._cached=True
             kwargs=dict()
-            kwargs['columns'] = self._cols
+            kwargs['columns'] = _kline_cols
             super(Kline, self).__init__(data=data, dtype=np.float64, **kwargs)
 
     def __getattr__(self, attr_name):
@@ -295,7 +336,7 @@ class Kline(_Kline):
             data=self._get_stored()
             self._cached=True
             kwargs=dict()
-            kwargs['columns'] = self._cols
+            kwargs['columns'] = _kline_cols
             super(Kline, self).__init__(data=data, dtype=np.float64, **kwargs)
         return super(Kline, self).__getattr__(attr_name)
 
@@ -335,36 +376,7 @@ class _Indicators(pd.DataFrame):
     """
     Pandas DataFrame subclass with custom metadata and constructor for Indicators class.
     """
-    _metadata = ['_kline', '_cached', '_store_indicators']
-    _ta_compute_map = {
-        'obv': ['volume', 'OnBalanceVolumeIndicator', ['close', 'volume'], ['on_balance_volume']],
-        'mfi': ['volume', 'MFIIndicator', ['high', 'low', 'close', 'volume'], ['money_flow_index']],
-        'cmf': ['volume', 'ChaikinMoneyFlowIndicator', ['high', 'low', 'close', 'volume'], ['chaikin_money_flow']],
-        'vwap': ['volume', 'VolumeWeightedAveragePrice', ['high', 'low', 'close', 'volume'],
-                 ['volume_weighted_average_price']],
-        'atr': ['volatility', 'AverageTrueRange', ['high', 'low', 'close'], ['average_true_range']],
-        'bb': ['volatility', 'BollingerBands', ['close'], ['bollinger_hband', 'bollinger_mavg', 'bollinger_lband']],
-        'kc': ['volatility', 'KeltnerChannel', ['high', 'low', 'close'], ['keltner_channel_hband',
-               'keltner_channel_mband', 'keltner_channel_lband']],
-        'dc': ['volatility', 'DonchianChannel', ['high', 'low', 'close'], ['donchian_channel_hband',
-               'donchian_channel_mband', 'donchian_channel_lband']],
-        'sma': ['trend', 'SMAIndicator', ['close'], ['sma_indicator']],
-        'ema': ['trend', 'EMAIndicator', ['close'], ['ema_indicator']],
-        'wma': ['trend', 'WMAIndicator', ['close'], ['wma']],
-        'macd': ['trend', 'MACD', ['close'], ['macd', 'macd_signal', 'macd_diff']],
-        'adx': ['trend', 'ADXIndicator', ['high', 'low', 'close'], ['adx', 'adx_pos', 'adx_neg']],
-        'psar': ['trend', 'PSARIndicator', ['high', 'low', 'close'], ['psar', 'psar_up', 'psar_down']],
-        'rsi': ['momentum', 'RSIIndicator', ['close'], ['rsi']],
-        'roc': ['momentum', 'ROCIndicator', ['close'], ['roc']],
-        'so': ['momentum', 'StochasticOscillator', ['close', 'high', 'low'], ['stoch', 'stoch_signal']],
-        'dr': ['others', 'DailyReturnIndicator', ['close'], ['daily_return']],
-        'dlr': ['others', 'DailyLogReturnIndicator', ['close'], ['daily_log_return']],
-    }
-    _ta_name_map = {
-        'bb': ['bb_hband', 'bb_mband', 'bb_lband'],
-        'dc': ['dc_hband', 'dc_mband', 'dc_lband'],
-        'kc': ['kc_hband', 'kc_mband', 'kc_lband'],
-    }
+    _metadata = ['_kline', '_store_indicators', '_cached']
 
     @property
     def _constructor(self):
@@ -393,7 +405,7 @@ class _Indicators(pd.DataFrame):
     def compute(self, indicator, *args, **kwargs):
         """Compute an indicator.
         """
-        module_name, class_name, value_names, method_names = self._ta_compute_map[indicator]
+        module_name, class_name, value_names, method_names = _ta_compute_map[indicator]
         default_args = (getattr(self.kline, value_name) for value_name in value_names)
         ta_class = getattr(getattr(ta, module_name), class_name)(*default_args, *args, **kwargs)
         computed_indicators = []
@@ -402,8 +414,8 @@ class _Indicators(pd.DataFrame):
                 warnings.simplefilter("ignore")
                 computed_indicators.append(getattr(ta_class, method_name)())
         df_indicators = pd.concat(computed_indicators, axis=1)
-        if indicator in self._ta_name_map:
-            df_indicators.columns = self._ta_name_map[indicator]
+        if indicator in _ta_name_map:
+            df_indicators.columns = _ta_name_map[indicator]
         return df_indicators
 
     def append(self, computed_indicator):
@@ -430,15 +442,15 @@ class Indicators(_Indicators):
         store_indicators (list): Indicator names to store in memory.
     """
     def __init__(self, kline, store_indicators):
-        self._kline=kline
-        self._cached=False
-        self._store_indicators=store_indicators
+        self._kline = kline
+        self._store_indicators = store_indicators
+        self._cached = False
         # super().__init__()
 
     def __getattr__(self, attr_name):
         if not self._cached:
-            self._cached=True
-            data=pd.DataFrame(data=[], index=self.kline.index)
+            self._cached = True
+            data = pd.DataFrame(data=[], index=self.kline.index)
             super(Indicators, self).__init__(data=data)
             for indicator in self.store_indicators:
                 try:
@@ -453,7 +465,7 @@ class _Signals(pd.DataFrame):
     """
     Pandas DataFrame subclass with custom metadata and constructor for Signals class.
     """
-    _metadata = ['_kline', '_cached', '_store_signals']
+    _metadata = ['_kline', '_store_signals', '_raw', '_cached']
 
     @property
     def _constructor(self):
@@ -489,6 +501,7 @@ class _Signals(pd.DataFrame):
     def append(self, computed_signal, signal, *args, **kwargs):
         """Append a signal.
         """
+        kwargs = {key:kwargs[key] for key in kwargs if key != 'raw'}
         str_args = '_' + '_'.join([str(_) for _ in args]) if len(args) > 0 else ''
         str_kwargs = '_' + '_'.join([str(kwargs[_]) for _ in kwargs]) if len(kwargs) > 0 else ''
         signal_name = signal + str_args + str_kwargs
@@ -503,21 +516,28 @@ class _Signals(pd.DataFrame):
         return None
 
     @staticmethod
-    def _compute_signal_crossovers(kline, fast_indicator='sma_50', slow_indicator='sma_200', buffer=.0001):
-        sl_diff = (getattr(kline.indicators, fast_indicator) -
-                   getattr(kline.indicators, slow_indicator))/getattr(kline.indicators, fast_indicator)
-        bins = [-float('inf'), -buffer, buffer+1e-10, float('inf')]
-        cuts = pd.cut(sl_diff, bins=bins, duplicates='drop', labels=False)-1.
-        cuts = cuts.where(cuts != 1, cuts.where(sl_diff.diff(1) > 0, 0))
+    def _compute_signal_pairedcross(kline, fast_indicator='sma_50', slow_indicator='sma_200', buffer=.0001,
+                                      raw=False):
+        sl_pct_diff = (getattr(kline.indicators, fast_indicator) -
+                       getattr(kline.indicators, slow_indicator))/getattr(kline.indicators, fast_indicator)
+        sl_pct_diff_change = sl_pct_diff.diff(1)
+        signal_raw = (sl_pct_diff * sl_pct_diff_change.gt(0) +
+                      sl_pct_diff * sl_pct_diff_change.le(0) * buffer)
+        if raw:
+            return signal_raw
+        bins = [-float('inf'), 0, buffer+1e-10, float('inf')]
+        cuts = pd.cut(signal_raw, bins=bins, duplicates='drop', labels=False)-1.
         return cuts
 
     @staticmethod
-    def _compute_signal_trend(kline, indicator='sma_50', repeat=2, buffer=.0001):
+    def _compute_signal_slope(kline, indicator='sma_50', repeat=2, buffer=.0001, raw=False):
         ydiff = getattr(kline.indicators, indicator).pct_change(1)
         index_diff = kline.index.to_series().diff(1)
         seconds_per_step = index_diff.value_counts().index[0].total_seconds()
         xdiff = (index_diff.dt.total_seconds()/seconds_per_step).replace(0, np.nan)
         slopes = (ydiff/xdiff)
+        if raw:
+            return slopes
         bins = [-float('inf'), -buffer, buffer+1e-10, float('inf')]
         cuts = pd.cut(slopes, bins=bins, duplicates='drop', labels=False)-1
         cuts_rolling = cuts.rolling(repeat).sum()
@@ -525,48 +545,61 @@ class _Signals(pd.DataFrame):
         return cuts
 
     @staticmethod
-    def _compute_signal_pricecross(kline, indicator='sma_50', buffer=.0001):
+    def _compute_signal_closecross(kline, indicator='sma_50', buffer=.0001, raw=False):
         price_indicator_diff = (kline.close - getattr(kline.indicators, indicator))/kline.close
+        if raw:
+            return price_indicator_diff
         bins = [-float('inf'), -buffer, buffer+1e-10, float('inf')]
         cuts = pd.cut(price_indicator_diff, bins=bins, duplicates='drop', labels=False)-1.
         return cuts
 
     @staticmethod
-    def _compute_signal_macdcross(kline, fast_window=12, slow_window=26, buffer=.0001):
+    def _compute_signal_macdcap(kline, fast_window=12, slow_window=26, buffer=.0001, raw=False):
         macd = getattr(kline.indicators, 'macd_{}_{}'.format(fast_window, slow_window))
         macd_diff = getattr(kline.indicators, 'macd_diff_{}_{}'.format(fast_window, slow_window))
         macd_signal_diff = macd_diff/macd
+        if raw:
+            return macd_signal_diff
         bins = [-float('inf'), -buffer, buffer+1e-10, float('inf')]
         cuts = pd.cut(macd_signal_diff, bins=bins, duplicates='drop', labels=False)-1.
         return cuts
 
     @staticmethod
-    def _compute_signal_rsicross(kline, lower=30, upper=70): # window=14
+    def _compute_signal_rsicap(kline, lower=30, upper=70, raw=False): # window=14
+        if raw:
+            pass
         rsi = getattr(kline.indicators, 'rsi')
         bins = [-float('inf'), lower, upper, float('inf')]
         cuts = -(pd.cut(rsi, bins=bins, labels=False)-1.)
         return cuts
 
     @staticmethod
-    def _compute_signal_adxcross(kline, threshold=25, buffer=.0001):
+    def _compute_signal_adxcap(kline, threshold=25, buffer=.0001, raw=False):
         adx = getattr(kline.indicators, 'adx')
         adx_pos = getattr(kline.indicators, 'adx_pos')
         adx_neg = getattr(kline.indicators, 'adx_neg')
         adx_diff = adx_pos / adx_neg
+        if raw:
+            return adx_diff
         bins = [-float('inf'), 1-buffer, 1+buffer+1e-10, float('inf')]
         cuts = pd.cut(adx_diff, bins=bins, duplicates='drop', labels=False)-1.
         cuts = cuts.where(adx.gt(threshold), 0)
         return cuts
 
     @staticmethod
-    def _compute_signal_atrfilter(kline, indicator='sma_50', threshold=.04):
+    def _compute_signal_atrcross(kline, indicator='sma_50', threshold=.04, raw=False):
         atr = getattr(kline.indicators, 'atr')
         indicator = getattr(kline.indicators, indicator) if indicator else getattr(kline, 'close')
-        signal = (atr / indicator).lt(threshold).astype(int)
+        atr_indicator_ratio = atr / indicator
+        if raw:
+            return atr_indicator_ratio
+        signal = atr_indicator_ratio.lt(threshold).astype(int)
         return signal
 
     @staticmethod
-    def _compute_signal_bbcross(kline):
+    def _compute_signal_bbcross(kline, raw=False):
+        if raw:
+            pass
         close = getattr(kline, 'close')
         hband = getattr(kline.indicators, 'bb_hband')
         lband = getattr(kline.indicators, 'bb_lband')
@@ -575,7 +608,9 @@ class _Signals(pd.DataFrame):
         return buy+sell
 
     @staticmethod
-    def _compute_signal_cmfcross(kline, buffer=.1):
+    def _compute_signal_cmfcap(kline, buffer=.1, raw=False):
+        if raw:
+            pass
         cmf = getattr(kline.indicators, 'cmf')
         bins = [-float('inf'), -buffer, buffer+1e-10, float('inf')]
         cuts = pd.cut(cmf, bins=bins, duplicates='drop', labels=False)-1.
@@ -589,22 +624,34 @@ class Signals(_Signals):
     Args:
         kline (Kline): Kline from which to get info to compute signals.
         store_signals (list): Signal names to store in memory.
+        raw (bool): Whether to work with uncut signals or not.
     """
-    def __init__(self, kline, store_signals):
-        self._kline=kline
-        self._cached=False
+    def __init__(self, kline, store_signals, raw=False):
+        self._kline = kline
         self._store_signals = store_signals
+        self._raw = raw
+        self._cached = False
         # super().__init__()
 
     def __getattr__(self, attr_name):
         if not self._cached:
-            self._cached=True
-            data=pd.DataFrame(data=[], index=self.kline.index)
+            self._cached = True
+            data = pd.DataFrame(data=[], index=self.kline.index)
             super(Signals, self).__init__(data=data)
             for signal in self.store_signals:
                 try:
                     fun, args = signal
                 except ValueError:
                     fun = signal
-                self.extend(fun, *args)
+                self.extend(fun, *args, raw=self._raw)
         return super(Signals, self).__getattr__(attr_name)
+
+    @property
+    def raw(self):
+        "Get raw param"
+        return self._raw
+
+    @raw.setter
+    def raw(self, value):
+        "Set raw param"
+        self._raw = value
