@@ -39,14 +39,21 @@ _store_indicators_default = [('sma', (50,)),
                              ('dlr', ()),
                             ]
 _store_signals_default = [('pairedcross', ('sma_50', 'sma_200')),
-                          ('slope', ('sma_50', 2)),
+                          ('slopecarry', ('sma_50', 2)),
                           ('closecross', ('sma_50',)),
                           ('macdcap', (12, 26)),
                           ('rsicap', (30, 70)),
                           ('adxcap', (25,)),
                           ('atrcross', ('sma_50', .04)),
-                          ('bbcross', ()),
-                          ('cmfcap', (.1,))
+                          ('bbcross', (.98,)),
+                          ('cmfcap', (.1,)),
+                          ('dccross', (.98,)),
+                          ('kccross', (1.,)),
+                          ('mficap', (20, 80, 14,)),
+                          ('psarcross', ()),
+                          ('roccap', (-5, 5)),
+                          ('stochcap', (-80, 80, 3)),
+                          ('vwapcross', (14,)),
                          ]
 _ta_compute_map = {
     'obv': ['volume', 'OnBalanceVolumeIndicator', ['close', 'volume'], ['on_balance_volume']],
@@ -103,14 +110,26 @@ class _Kline(pd.DataFrame):
         return self._asset
 
     @property
+    def indicatorsjar(self):
+        """Get indicators reference storage.
+        """
+        return self._indicators
+
+    @property
     def indicators(self):
-        """Get indicators.
+        """Get indexed indicators.
         """
         return self._indicators.reindex(self.index)
 
     @property
+    def signalsjar(self):
+        """Get signals reference storage.
+        """
+        return self._signals
+
+    @property
     def signals(self):
-        """Get signals.
+        """Get indexed signals.
         """
         return self._signals.reindex(self.index)
 
@@ -210,6 +229,20 @@ class _Kline(pd.DataFrame):
         """
         self._signals.raw = raw
 
+    def add_indicator(self, *args, **kwargs):
+        """
+        Returns:
+            None. Extends full-index indicators with a new indicator.
+        """
+        self._indicators.extend(*args, **kwargs)
+
+    def add_signal(self, *args, **kwargs):
+        """
+        Returns:
+            None. Extends full-index signals with a new signal.
+        """
+        self._signals.extend(*args, **kwargs)
+
     def update(self, client, store=False, verbose=False, sleep=1):
         """
         Args:
@@ -249,7 +282,8 @@ class _Kline(pd.DataFrame):
         path_or_buf = self._open(self.root_path+self.asset+'.csv', mode='w')
         self.to_csv(path_or_buf=path_or_buf, sep=';')
 
-    def plot(self, size=180, indicators=None, signals=None, rangeslider=False, secondary=False, fig=None):
+    def plot(self, size=24*7, indicators=None, signals=None, rangeslider=False, secondary=False, signal_type='BUY',
+             fig=None):
         """
         Args:
             size (int): The number of ticks in the past for which to plot the desired graph.
@@ -257,6 +291,7 @@ class _Kline(pd.DataFrame):
             signals (list): List of signals to plot.
             rangeslides (bool): Whether to plot a rangeslider or not.
             secondary (bool or list): Whether or not, or which indicator to plot on a secondary axis.
+            signal_type (str): Whether to show signals as BUY or SELL.
             fig (plotly.graph_objs.Figure): An existing plotly figure on which to plot.
 
         Returns:
@@ -265,6 +300,8 @@ class _Kline(pd.DataFrame):
         """
         fig = make_subplots(specs=[[{"secondary_y": True}]]) if fig is None else fig
         signals, indicators = [([] if s_or_m is None else s_or_m) for s_or_m in (signals, indicators)]
+        signal_sign = [-1, 1][signal_type=='BUY']
+        signal_color=['rgba(220, 60, 100, 0.2)', 'rgba(60, 220, 100, 0.2)'][signal_type=='BUY']
         colors = ["#f94144", "#f3722c", "#f8961e", "#f9844a", "#f9c74f", "#90be6d", "#43aa8b", "#4d908e",
                   "#577590", "#277da1"]
         _, y_max = self.low[-size:].min(), self.high[-size:].max()
@@ -285,18 +322,24 @@ class _Kline(pd.DataFrame):
         for signal in signals:
             signal_data = self.signals.loc[:, signal]
             fig.add_trace(go.Scatter(x=self.index[-size:],
-                                     y=np.where(signal_data.eq(1)[-size:], y_max, 0),
+                                     y=np.where(signal_data.eq(signal_sign)[-size:], y_max, 0),
                                      mode='none',
                                      fill='tozeroy',
-                                     fillcolor='rgba(60, 220, 100, 0.2)',
-                                     name=signal+'-BUY'))
-            fig.add_trace(go.Scatter(x=self.index[-size:],
-                                     y=np.where(signal_data.eq(-1)[-size:], y_max, 0),
-                                     mode='none',
-                                     fill='tozeroy',
-                                     fillcolor='rgba(220, 60, 100, 0.2)',
-                                     visible='legendonly',
-                                     name=signal+'-SELL'))
+                                     fillcolor=signal_color,
+                                     name=signal+'-'+signal_type))
+            # fig.add_trace(go.Scatter(x=self.index[-size:],
+            #                          y=np.where(signal_data.eq(1)[-size:], y_max, 0),
+            #                          mode='none',
+            #                          fill='tozeroy',
+            #                          fillcolor='rgba(60, 220, 100, 0.2)',
+            #                          name=signal+'-BUY'))
+            # fig.add_trace(go.Scatter(x=self.index[-size:],
+            #                          y=np.where(signal_data.eq(-1)[-size:], y_max, 0),
+            #                          mode='none',
+            #                          fill='tozeroy',
+            #                          fillcolor='rgba(220, 60, 100, 0.2)',
+            #                          visible='legendonly',
+            #                          name=signal+'-SELL'))
         fig.update_layout(xaxis_rangeslider_visible=rangeslider)
         # fig.update_yaxes(range=[y_min, y_max])
         fig.show()
@@ -517,7 +560,7 @@ class _Signals(pd.DataFrame):
 
     @staticmethod
     def _compute_signal_pairedcross(kline, fast_indicator='sma_50', slow_indicator='sma_200', buffer=.0001,
-                                      raw=False):
+                                    raw=False):
         sl_pct_diff = (getattr(kline.indicators, fast_indicator) -
                        getattr(kline.indicators, slow_indicator))/getattr(kline.indicators, fast_indicator)
         sl_pct_diff_change = sl_pct_diff.diff(1)
@@ -530,45 +573,47 @@ class _Signals(pd.DataFrame):
         return cuts
 
     @staticmethod
-    def _compute_signal_slope(kline, indicator='sma_50', repeat=2, buffer=.0001, raw=False):
-        ydiff = getattr(kline.indicators, indicator).pct_change(1)
+    def _compute_signal_slopecarry(kline, indicator='sma_50', repeat=2, buffer=.0001, raw=False):
+        y_diff = getattr(kline.indicators, indicator).pct_change(1)
         index_diff = kline.index.to_series().diff(1)
         seconds_per_step = index_diff.value_counts().index[0].total_seconds()
-        xdiff = (index_diff.dt.total_seconds()/seconds_per_step).replace(0, np.nan)
-        slopes = (ydiff/xdiff)
+        x_diff = (index_diff.dt.total_seconds()/seconds_per_step).replace(0, np.nan)
+        slopes = (y_diff/x_diff)
+        slopes_signs = slopes.apply(np.sign)
+        slopes_signs_repeated = slopes_signs.rolling(repeat).sum()
+        signal_raw = (slopes * slopes_signs_repeated.abs().ge(repeat) +
+                      slopes * slopes_signs_repeated.abs().lt(repeat) * buffer)
         if raw:
-            return slopes
+            return signal_raw
         bins = [-float('inf'), -buffer, buffer+1e-10, float('inf')]
-        cuts = pd.cut(slopes, bins=bins, duplicates='drop', labels=False)-1
-        cuts_rolling = cuts.rolling(repeat).sum()
-        cuts = cuts_rolling.where((cuts_rolling <= -repeat) | (cuts_rolling >= repeat)).fillna(0).clip(-1., 1.)
+        cuts = pd.cut(signal_raw, bins=bins, duplicates='drop', labels=False)-1
         return cuts
 
     @staticmethod
     def _compute_signal_closecross(kline, indicator='sma_50', buffer=.0001, raw=False):
-        price_indicator_diff = (kline.close - getattr(kline.indicators, indicator))/kline.close
+        price_indicator_pct_diff = (kline.close - getattr(kline.indicators, indicator))/kline.close
         if raw:
-            return price_indicator_diff
+            return price_indicator_pct_diff
         bins = [-float('inf'), -buffer, buffer+1e-10, float('inf')]
-        cuts = pd.cut(price_indicator_diff, bins=bins, duplicates='drop', labels=False)-1.
+        cuts = pd.cut(price_indicator_pct_diff, bins=bins, duplicates='drop', labels=False)-1.
         return cuts
 
     @staticmethod
     def _compute_signal_macdcap(kline, fast_window=12, slow_window=26, buffer=.0001, raw=False):
         macd = getattr(kline.indicators, 'macd_{}_{}'.format(fast_window, slow_window))
         macd_diff = getattr(kline.indicators, 'macd_diff_{}_{}'.format(fast_window, slow_window))
-        macd_signal_diff = macd_diff/macd
+        raw_signal = macd_diff/macd
         if raw:
-            return macd_signal_diff
+            return raw_signal
         bins = [-float('inf'), -buffer, buffer+1e-10, float('inf')]
-        cuts = pd.cut(macd_signal_diff, bins=bins, duplicates='drop', labels=False)-1.
+        cuts = pd.cut(raw_signal, bins=bins, duplicates='drop', labels=False)-1.
         return cuts
 
     @staticmethod
     def _compute_signal_rsicap(kline, lower=30, upper=70, raw=False): # window=14
-        if raw:
-            pass
         rsi = getattr(kline.indicators, 'rsi')
+        if raw:
+            return rsi
         bins = [-float('inf'), lower, upper, float('inf')]
         cuts = -(pd.cut(rsi, bins=bins, labels=False)-1.)
         return cuts
@@ -578,11 +623,11 @@ class _Signals(pd.DataFrame):
         adx = getattr(kline.indicators, 'adx')
         adx_pos = getattr(kline.indicators, 'adx_pos')
         adx_neg = getattr(kline.indicators, 'adx_neg')
-        adx_diff = adx_pos / adx_neg
+        pos_neg_ratio = adx_pos / adx_neg
         if raw:
-            return adx_diff
+            return pos_neg_ratio
         bins = [-float('inf'), 1-buffer, 1+buffer+1e-10, float('inf')]
-        cuts = pd.cut(adx_diff, bins=bins, duplicates='drop', labels=False)-1.
+        cuts = pd.cut(pos_neg_ratio, bins=bins, duplicates='drop', labels=False)-1.
         cuts = cuts.where(adx.gt(threshold), 0)
         return cuts
 
@@ -597,23 +642,98 @@ class _Signals(pd.DataFrame):
         return signal
 
     @staticmethod
-    def _compute_signal_bbcross(kline, raw=False):
-        if raw:
-            pass
+    def _compute_signal_bbcross(kline, threshold=.98, raw=False):
         close = getattr(kline, 'close')
         hband = getattr(kline.indicators, 'bb_hband')
         lband = getattr(kline.indicators, 'bb_lband')
-        buy = close.gt(hband).astype(int)
-        sell = close.lt(lband).astype(int)*-1
-        return buy+sell
+        mband = getattr(kline.indicators, 'bb_mband')
+        signal_raw = ((close / hband * close.gt(mband)) +
+                      (lband / close * close.le(mband) * -1))
+        if raw:
+            return signal_raw
+        return signal_raw.apply(np.sign) * signal_raw.abs().ge(threshold)
 
     @staticmethod
     def _compute_signal_cmfcap(kline, buffer=.1, raw=False):
-        if raw:
-            pass
         cmf = getattr(kline.indicators, 'cmf')
+        if raw:
+            return cmf
         bins = [-float('inf'), -buffer, buffer+1e-10, float('inf')]
         cuts = pd.cut(cmf, bins=bins, duplicates='drop', labels=False)-1.
+        return cuts
+
+    @staticmethod
+    def _compute_signal_dccross(kline, threshold=.98, raw=False):
+        close = getattr(kline, 'close')
+        hband = getattr(kline.indicators, 'dc_hband')
+        lband = getattr(kline.indicators, 'dc_lband')
+        mband = getattr(kline.indicators, 'dc_mband')
+        signal_raw = ((close / hband * close.gt(mband)) +
+                      (lband / close * close.le(mband) * -1))
+        if raw:
+            return signal_raw
+        return signal_raw.apply(np.sign) * signal_raw.abs().ge(threshold)
+
+    @staticmethod
+    def _compute_signal_kccross(kline, threshold=1., raw=False):
+        close = getattr(kline, 'close')
+        hband = getattr(kline.indicators, 'kc_hband')
+        lband = getattr(kline.indicators, 'kc_lband')
+        mband = getattr(kline.indicators, 'kc_mband')
+        signal_raw = ((close / hband * close.gt(mband)) +
+                      (lband / close * close.le(mband) * -1))
+        if raw:
+            return signal_raw
+        return signal_raw.apply(np.sign) * signal_raw.abs().ge(threshold)
+
+    @staticmethod
+    def _compute_signal_mficap(kline, lower=20, upper=80, window=14, raw=False):
+        mfi = getattr(kline.indicators, 'mfi_{}'.format(window))
+        if raw:
+            return mfi
+        bins = [-float('inf'), lower, upper, float('inf')]
+        cuts = -(pd.cut(mfi, bins=bins, labels=False)-1.)
+        return cuts
+
+    @staticmethod
+    def _compute_signal_psarcross(kline, indicator=None, buffer=.001, raw=False):
+        psar = getattr(kline.indicators, 'psar')
+        indicator = getattr(kline.indicators, indicator) if indicator else getattr(kline, 'close')
+        psar_indicator_ratio = psar / indicator
+        if raw:
+            return psar_indicator_ratio
+        bins = [-float('inf'), 1-buffer, 1+buffer+1e-10, float('inf')]
+        cuts = -(pd.cut(psar_indicator_ratio, bins=bins, duplicates='drop', labels=False)-1.)
+        return cuts
+
+    @staticmethod
+    def _compute_signal_roccap(kline, lower=-5, upper=5, raw=False):
+        roc = getattr(kline.indicators, 'roc')
+        if raw:
+            return roc
+        bins = [-float('inf'), lower, upper, float('inf')]
+        cuts = pd.cut(roc, bins=bins, labels=False)-1.
+        return cuts
+
+    @staticmethod
+    def _compute_signal_stochcap(kline, lower=-80, upper=80, window=3, raw=False):
+        stoch = getattr(kline.indicators, 'stoch_k')
+        stoch_rolled = stoch.rolling(window).mean() # == getattr(kline.indicators, 'stoch_signal')
+        if raw:
+            return stoch_rolled
+        bins = [-float('inf'), lower, upper, float('inf')]
+        cuts = -(pd.cut(stoch_rolled, bins=bins, labels=False)-1.)
+        return cuts
+
+    @staticmethod
+    def _compute_signal_vwapcross(kline, window=14, indicator=None, buffer=.001, raw=False):
+        vwap = getattr(kline.indicators, 'vwap_{}'.format(window))
+        indicator = getattr(kline.indicators, indicator) if indicator else getattr(kline, 'close')
+        vwap_indicator_ratio = (vwap / indicator).rolling(3).mean()
+        if raw:
+            return vwap_indicator_ratio
+        bins = [-float('inf'), 1-buffer, 1+buffer+1e-10, float('inf')]
+        cuts = -(pd.cut(vwap_indicator_ratio, bins=bins, duplicates='drop', labels=False)-1.)
         return cuts
 
 
