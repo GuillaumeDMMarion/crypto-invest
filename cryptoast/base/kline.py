@@ -282,7 +282,7 @@ class _Kline(pd.DataFrame):
         path_or_buf = self._open(self.root_path+self.asset+'.csv', mode='w')
         self.to_csv(path_or_buf=path_or_buf, sep=';')
 
-    def plot(self, size=24*7, indicators=None, signals=None, rangeslider=False, secondary=False, signal_type='BUY',
+    def plot(self, size=24*7, indicators=None, signals=None, rangeslider=False, secondary=False, signal_type='buy',
              fig=None):
         """
         Args:
@@ -298,10 +298,12 @@ class _Kline(pd.DataFrame):
             None. Plots the assets "open-high-low-close" data in candlestick style,
             overlayed with the desired indicators/signals.
         """
+        signal_type = signal_type.lower()
+        assert signal_type in ('buy', 'sell'), "Signal type should be one of ('buy', 'sell')."
         fig = make_subplots(specs=[[{"secondary_y": True}]]) if fig is None else fig
         signals, indicators = [([] if s_or_m is None else s_or_m) for s_or_m in (signals, indicators)]
-        signal_sign = [-1, 1][signal_type=='BUY']
-        signal_color=['rgba(220, 60, 100, 0.2)', 'rgba(60, 220, 100, 0.2)'][signal_type=='BUY']
+        signal_sign = [-1, 1][signal_type=='buy']
+        signal_color=['rgba(220, 60, 100, 0.2)', 'rgba(60, 220, 100, 0.2)'][signal_type=='buy']
         colors = ["#f94144", "#f3722c", "#f8961e", "#f9844a", "#f9c74f", "#90be6d", "#43aa8b", "#4d908e",
                   "#577590", "#277da1"]
         _, y_max = self.low[-size:].min(), self.high[-size:].max()
@@ -327,19 +329,6 @@ class _Kline(pd.DataFrame):
                                      fill='tozeroy',
                                      fillcolor=signal_color,
                                      name=signal+'-'+signal_type))
-            # fig.add_trace(go.Scatter(x=self.index[-size:],
-            #                          y=np.where(signal_data.eq(1)[-size:], y_max, 0),
-            #                          mode='none',
-            #                          fill='tozeroy',
-            #                          fillcolor='rgba(60, 220, 100, 0.2)',
-            #                          name=signal+'-BUY'))
-            # fig.add_trace(go.Scatter(x=self.index[-size:],
-            #                          y=np.where(signal_data.eq(-1)[-size:], y_max, 0),
-            #                          mode='none',
-            #                          fill='tozeroy',
-            #                          fillcolor='rgba(220, 60, 100, 0.2)',
-            #                          visible='legendonly',
-            #                          name=signal+'-SELL'))
         fig.update_layout(xaxis_rangeslider_visible=rangeslider)
         # fig.update_yaxes(range=[y_min, y_max])
         fig.show()

@@ -30,6 +30,27 @@ def prec_floor(a, precision=0):
     """
     return np.round(a - 0.5 * 10**(-precision), precision)
 
+def pct_change(a, b):
+    """
+    Args:
+        a: Value.
+        b: Other value.
+
+    Returns:
+        The percentage change.
+    """
+    return (b-a)/a
+
+def pct_change_diff(p, v):
+    """
+    Args:
+        p: Percent change.
+        v: Other percent change.
+
+    Returns:
+        Some difference calculation of percent changes.
+    """
+    return 2*v-p
 
 class Backtest():
     """Backtester.
@@ -225,7 +246,7 @@ class SingleAssetEnv(gym.Env):
         self.signal_cols = klmngr[klmngr.assets[0]].signals.columns.to_series()
         self.rel_indicators_mask = self.indicator_cols.str.startswith(self._rel_indicators_stem)
         self.abs_indicators_mask = self.indicator_cols.str.startswith(self._abs_indicators_stem)
-        self.n_obs_cols = self.rel_indicators_mask.sum() + self.abs_indicators_mask.sum() + len(self.signal_cols)
+        self.n_obs_cols = len(self.signal_cols) # self.rel_indicators_mask.sum() + self.abs_indicators_mask.sum()
         self.observation_space = gym.spaces.Box(low=-np.inf,
                                                 high=np.inf,
                                                 shape=(window*self.n_obs_cols+2*self.backtest.memory,),
@@ -253,16 +274,19 @@ class SingleAssetEnv(gym.Env):
         """Get observation.
         """
         # timestamp = timestamp + pd.Timedelta(days=1)
-        close_values = self.kline.loc[:timestamp, :].close.values[-window:].reshape(-1, 1)
+        # close_values = self.kline.loc[:timestamp, :].close.values[-window:].reshape(-1, 1)
         abs_signals = self.kline.signals.loc[:timestamp, :]
-        abs_signal_values = abs_signals.fillna(-1).values[-window:]
-        abs_indicators = self.kline.indicators.loc[:timestamp, self.abs_indicators_mask]
-        abs_indicator_values = abs_indicators.fillna(-1).values[-window:]
-        rel_indicators = self.kline.indicators.loc[:timestamp, self.rel_indicators_mask]
-        rel_indicator_values = rel_indicators.fillna(-1).values[-window:]
+        abs_signals = abs_signals.fillna(0)
+        abs_signal_values = np.vstack([np.tile(0, (3, 16)), abs_signals])[-window:]
+        # abs_signal_values = abs_signals.values[-window:] #abs_signals.fillna(-1).values[-window:]
+        # abs_indicators = self.kline.indicators.loc[:timestamp, self.abs_indicators_mask]
+        # abs_indicator_values = abs_indicators.fillna(-1).values[-window:]
+        # rel_indicators = self.kline.indicators.loc[:timestamp, self.rel_indicators_mask]
+        # rel_indicator_values = rel_indicators.fillna(-1).values[-window:]
         observation = np.hstack((abs_signal_values,
-                                 abs_indicator_values,
-                                 rel_indicator_values / close_values[-1]))
+                                #  abs_indicator_values,
+                                #  rel_indicator_values / close_values[-1]
+                                ))
         periodic_values = np.array(self.backtest.history)[:, :2]
         transactions_history = np.hstack([0, 0] +
                                          [(periodic_values[:-1, _] != periodic_values[1:, _]).astype(int)
@@ -327,26 +351,30 @@ class SingleAssetEnv(gym.Env):
         # future_periodic = pd.DataFrame(self.backtest.stepx(n=1)[0]).T
         timestamp = self.backtest.position['timestamp']
         previous_timestamp = timestamp - timedelta(hours=1)
-        while True:
-            try:
-                # value_t0 = getattr(self.backtest, '_periodic')[previous_timestamp]['value']
-                # price_t0 = getattr(self.kline, 'close')[previous_timestamp]
-                break
-            except KeyError:
-                previous_timestamp -= timedelta(hours=1)
         value_t1 = getattr(self.backtest, '_periodic')[timestamp]['value']
         price_t1 = getattr(self.kline, 'close')[timestamp]
-        reward = value_t1 - price_t1
+        while True:
+            try:
+                value_t0 = getattr(self.backtest, '_periodic')[previous_timestamp]['value']
+                price_t0 = getattr(self.kline, 'close')[previous_timestamp]
+                break
+            except KeyError:
+                try:
+                    previous_timestamp -= timedelta(hours=1)
+                except pd._libs.tslibs.OutOfBoundsDatetime:
+                    value_t0 = value_t1
+                    price_t0 = price_t1
+        # reward = value_t1 - price_t1
         # reward = (value_t1-value_t0)/value_t0
         # reward = reward-1 if reward <= 0 else 1+reward
-        # value_d = ((value_t1-value_t0)/value_t0)
-        # price_d = ((price_t1-price_t0)/price_t0)
+        value_d = pct_change(value_t0, value_t1)
+        price_d = pct_change(price_t0, price_t1)
         # return value_d / price_d
         # amount_t0 = value_t0 / price_t0
         # reward = (value_t1 - value_t0) - (amount_t0*price_t1 - amount_t0*price_t0)
         # reward = -1 if reward == 0 else reward
+        reward = pct_change_diff(price_d, value_d)
         return reward
-
 
     def get_info(self):
         """Get info.
@@ -388,7 +416,7 @@ class SingleAssetEnv(gym.Env):
         self.current_step += 1
         self.backtest.step(order=(action - 1) * 999)
         timestamp = self.backtest.position['timestamp']
-        observation = self.get_observation(timestamp = timestamp,
+        observation = self.get_observation(timestamp=timestamp,
                                            window=self.window)
         reward = self.get_reward()
         done = (timestamp == self.kline.index.max()-timedelta(hours=1) or
