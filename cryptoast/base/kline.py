@@ -119,6 +119,7 @@ class _Kline(pd.DataFrame):
     def indicators(self):
         """Get indexed indicators.
         """
+        self._indicators.trigger_cache()
         return self._indicators.reindex(self.index)
 
     @property
@@ -131,6 +132,7 @@ class _Kline(pd.DataFrame):
     def signals(self):
         """Get indexed signals.
         """
+        self._signals.trigger_cache()
         return self._signals.reindex(self.index)
 
     @property
@@ -219,29 +221,29 @@ class _Kline(pd.DataFrame):
         remote_df = pd.DataFrame(data=klines, columns=_kline_cols, index=datetimes, dtype=np.float64)
         return remote_df
 
-    def set_raw_signals(self, raw=True):
-        """
-        Args:
-            raw (bool): Whether to set raw signal param to True or not.
+    # def set_raw_signals(self, raw=True):
+    #     """
+    #     Args:
+    #         raw (bool): Whether to set raw signal param to True or not.
 
-        Returns:
-            None. Sets raw signal param to True or not.
-        """
-        self._signals.raw = raw
+    #     Returns:
+    #         None. Sets raw signal param to True or not.
+    #     """
+    #     self._signals.raw = raw
 
-    def add_indicator(self, *args, **kwargs):
-        """
-        Returns:
-            None. Extends full-index indicators with a new indicator.
-        """
-        self._indicators.extend(*args, **kwargs)
+    # def add_indicator(self, *args, **kwargs):
+    #     """
+    #     Returns:
+    #         None. Extends full-index indicators with a new indicator.
+    #     """
+    #     self._indicators.extend(*args, **kwargs)
 
-    def add_signal(self, *args, **kwargs):
-        """
-        Returns:
-            None. Extends full-index signals with a new signal.
-        """
-        self._signals.extend(*args, **kwargs)
+    # def add_signal(self, *args, **kwargs):
+    #     """
+    #     Returns:
+    #         None. Extends full-index signals with a new signal.
+    #     """
+    #     self._signals.extend(*args, **kwargs)
 
     def update(self, client, store=False, verbose=False, sleep=1):
         """
@@ -434,6 +436,16 @@ class _Indicators(pd.DataFrame):
         """
         return self._store_indicators
 
+    def trigger_cache(self):
+        """
+        Returns:
+            None; Triggers cache by manually calling __getattr__.
+        """
+        try:
+            self.__getattr__(None)
+        except TypeError:
+            pass
+
     def compute(self, indicator, *args, **kwargs):
         """Compute an indicator.
         """
@@ -477,7 +489,6 @@ class Indicators(_Indicators):
         self._kline = kline
         self._store_indicators = store_indicators
         self._cached = False
-        # super().__init__()
 
     def __getattr__(self, attr_name):
         if not self._cached:
@@ -490,7 +501,14 @@ class Indicators(_Indicators):
                 except ValueError:
                     fun = indicator
                 self.extend(fun, *args)
-        return super(Indicators, self).__getattr__(attr_name)
+        return super().__getattr__(attr_name)
+
+    def flush(self):
+        """
+        Returns:
+            None. Un-caches data.
+        """
+        self._cached = False
 
 
 class _Signals(pd.DataFrame):
@@ -520,6 +538,16 @@ class _Signals(pd.DataFrame):
         """Get stored signals list.
         """
         return self._store_signals
+
+    def trigger_cache(self):
+        """
+        Returns:
+            None; Triggers cache by manually calling __getattr__.
+        """
+        try:
+            self.__getattr__(None)
+        except TypeError:
+            pass
 
     def compute(self, signal, *args, **kwargs):
         """Compute a signal.
@@ -740,7 +768,6 @@ class Signals(_Signals):
         self._store_signals = store_signals
         self._raw = raw
         self._cached = False
-        # super().__init__()
 
     def __getattr__(self, attr_name):
         if not self._cached:
@@ -764,3 +791,20 @@ class Signals(_Signals):
     def raw(self, value):
         "Set raw param"
         self._raw = value
+
+    def set_raw(self, raw=True):
+        """
+        Args:
+            raw: Whether to return raw signals or not.
+
+        Returns:
+            None. Sets the raw attribute.
+        """
+        self.raw = raw
+
+    def flush(self):
+        """
+        Returns:
+            None. Un-caches data.
+        """
+        self._cached = False
