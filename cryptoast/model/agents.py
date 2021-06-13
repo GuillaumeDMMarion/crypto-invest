@@ -367,13 +367,16 @@ class SingleAssetEnv(gym.Env):
         # reward = value_t1 - price_t1
         # reward = (value_t1-value_t0)/value_t0
         # reward = reward-1 if reward <= 0 else 1+reward
-        value_d = pct_change(value_t0, value_t1)
-        price_d = pct_change(price_t0, price_t1)
+        # value_d = pct_change(value_t0, value_t1)
+        # price_d = pct_change(price_t0, price_t1)
+        # reward = pct_change_diff(price_d, value_d)
         # return value_d / price_d
         # amount_t0 = value_t0 / price_t0
         # reward = (value_t1 - value_t0) - (amount_t0*price_t1 - amount_t0*price_t0)
         # reward = -1 if reward == 0 else reward
-        reward = pct_change_diff(price_d, value_d)
+        t0_d = pct_change(price_t0, value_t0)
+        t1_d = pct_change(price_t1, value_t1)
+        reward = t1_d - t0_d
         return reward
 
     def get_info(self):
