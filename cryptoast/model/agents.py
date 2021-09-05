@@ -361,22 +361,27 @@ class SingleAssetEnv(gym.Env):
             except KeyError:
                 try:
                     previous_timestamp -= timedelta(hours=1)
-                except pd._libs.tslibs.OutOfBoundsDatetime:
+                except getattr(pd, '_libs').tslibs.OutOfBoundsDatetime:
                     value_t0 = value_t1
                     price_t0 = price_t1
         # reward = value_t1 - price_t1
         # reward = (value_t1-value_t0)/value_t0
         # reward = reward-1 if reward <= 0 else 1+reward
+
         # value_d = pct_change(value_t0, value_t1)
         # price_d = pct_change(price_t0, price_t1)
         # reward = pct_change_diff(price_d, value_d)
+
         # return value_d / price_d
         # amount_t0 = value_t0 / price_t0
         # reward = (value_t1 - value_t0) - (amount_t0*price_t1 - amount_t0*price_t0)
         # reward = -1 if reward == 0 else reward
-        t0_d = pct_change(price_t0, value_t0)
-        t1_d = pct_change(price_t1, value_t1)
-        reward = t1_d - t0_d
+
+        # t0_d = pct_change(price_t0, value_t0)
+        # t1_d = pct_change(price_t1, value_t1)
+        # reward = t1_d - t0_d
+
+        reward = pct_change(value_t0, value_t1)
         return reward
 
     def get_info(self):
