@@ -1,0 +1,28 @@
+name: cryptoast
+channels:
+  - defaults
+  - conda-forge
+  - pytorch
+dependencies:
+  - python=3.7
+  - s3fs=0.2.0
+  - pylint
+  - jupyter
+  - ipykernel
+  # - gym
+  - tsfresh
+  - plotly
+  - u8darts
+  - kats
+  - matplotlib
+  - numpy
+  - pandas
+  - scikit-learn
+  - statsmodels
+  # - libuv>=1.40.0
+  # - pytorch>=1.8.0
+  # - cudatoolkit>=11.0.0
+  - pip
+  - pip:
+    - python-binance==0.7.5
+    - ta==0.7.0
