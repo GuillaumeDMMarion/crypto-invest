@@ -33,6 +33,7 @@ class _Kline(pd.DataFrame):
         "_root_path",
         "_store_indicators",
         "_store_signals",
+        "_multi",
         "_cached",
         "_info",
     ]
@@ -70,6 +71,11 @@ class _Kline(pd.DataFrame):
     @property
     def signals(self) -> "Signals":
         """Get indexed signals."""
+        if self._signals.multi and not self._indicators.cached:
+            warnings.warn(
+                "If multi, need to manually trigger indicators-computation first."
+            )
+            return None
         self._signals.trigger_cache()
         return self._signals.reindex(self.index)
 
@@ -92,6 +98,11 @@ class _Kline(pd.DataFrame):
     def store_signals(self) -> List:
         """Get stored signals list."""
         return self._store_signals
+
+    @property
+    def multi(self) -> bool:
+        """Get multi indicator."""
+        return self._multi
 
     @property
     def cached(self) -> bool:
@@ -313,6 +324,7 @@ class Kline(_Kline):
         root_path: Root path of the stored data.
         store_indicators: List of indicators to store.
         store_signals: List of signals to store.
+        multi: Whether to use multiprocessing for computing indicators and signals.
         info: Inherited when initialized from KLMngr.
     """
 
@@ -324,6 +336,7 @@ class Kline(_Kline):
         root_path: str = "data/",
         store_indicators: Optional[List] = None,
         store_signals: Optional[List] = None,
+        multi: bool = False,
         info: Optional[pd.Series] = None,
     ):
         self._asset = asset
@@ -335,9 +348,14 @@ class Kline(_Kline):
         self._store_signals = (
             _STORE_SIGNALS_DEFAULT if store_signals is None else store_signals
         )
+        self._multi = multi
         self._cached = False
-        self._indicators = Indicators(self, store_indicators=self.store_indicators)
-        self._signals = Signals(self, store_signals=self.store_signals)
+        self._indicators = Indicators(
+            self, store_indicators=self.store_indicators, multi=self.multi
+        )
+        self._signals = Signals(
+            self, store_signals=self.store_signals, multi=self.multi
+        )
         self._info = info
         if data is not None:
             self._cached = True
@@ -432,7 +450,7 @@ class _Indicators(pd.DataFrame):
     Pandas DataFrame subclass with custom metadata and constructor for Indicators class.
     """
 
-    _metadata = ["_kline", "_store_indicators", "_cached"]
+    _metadata = ["_kline", "_store_indicators", "_multi", "_cached"]
 
     @property
     def _constructor(self):
@@ -443,6 +461,11 @@ class _Indicators(pd.DataFrame):
     def kline(self) -> "Kline":
         """Get underlying kline."""
         return self._kline
+
+    @property
+    def multi(self) -> bool:
+        """Get multi indicator."""
+        return self._multi
 
     @property
     def cached(self) -> bool:
@@ -461,21 +484,24 @@ class _Indicators(pd.DataFrame):
         except TypeError:
             pass
 
-    def compute(self, indicator: str, *args, **kwargs) -> pd.DataFrame:
+    def compute(self, indicator: Union[str, tuple], *args, **kwargs) -> pd.DataFrame:
         """Compute an indicator."""
+        if isinstance(indicator, tuple):
+            indicator, args = indicator
         module_name, class_name, value_names, method_names = _TA_COMPUTE_MAP[indicator]
         default_args = (getattr(self.kline, value_name) for value_name in value_names)
         ta_class = getattr(getattr(ta, module_name), class_name)(
             *default_args, *args, **kwargs
         )
+        rename = _TA_NAME_MAP.get(indicator)
         computed_indicators = []
         for method_name in method_names:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 computed_indicators.append(getattr(ta_class, method_name)())
         df_indicators = pd.concat(computed_indicators, axis=1)
-        if indicator in _TA_NAME_MAP:
-            df_indicators.columns = _TA_NAME_MAP[indicator]
+        if rename is not None:
+            df_indicators.columns = rename
         return df_indicators
 
     def append(self, computed_indicator: pd.DataFrame) -> None:
@@ -498,11 +524,13 @@ class Indicators(_Indicators):
     Args:
         kline: Kline from which to get info to compute indicators.
         store_indicators: Indicator names to store in memory.
+        multi: Whether to use multiprocessing or not.
     """
 
-    def __init__(self, kline: "Kline", store_indicators: List):
+    def __init__(self, kline: "Kline", store_indicators: List, multi: bool = True):
         self._kline = kline
         self._store_indicators = store_indicators
+        self._multi = multi
         self._cached = False
 
     def __getattr__(self, attr_name):
@@ -510,12 +538,20 @@ class Indicators(_Indicators):
             self._cached = True
             data = pd.DataFrame(data=[], index=self.kline.index)
             super(Indicators, self).__init__(data=data)
-            for indicator in self.store_indicators:
-                try:
-                    fun, args = indicator
-                except ValueError:
-                    fun = indicator
-                self.extend(fun, *args)
+            if not self._multi:
+                for indicator_tuple in self.store_indicators:
+                    self.extend(indicator_tuple)
+            else:
+                import multiprocessing as mp
+
+                indicator_tuples = self.store_indicators
+                with mp.Pool(processes=mp.cpu_count()) as pool:
+                    for computed_indicator in pool.map(
+                        func=self.compute,
+                        iterable=indicator_tuples,
+                        # chunksize=chunksize
+                    ):
+                        self.append(computed_indicator)
         return super().__getattr__(attr_name)
 
     def flush(self) -> None:
@@ -528,7 +564,7 @@ class _Signals(pd.DataFrame):
     Pandas DataFrame subclass with custom metadata and constructor for Signals class.
     """
 
-    _metadata = ["_kline", "_store_signals", "_raw", "_cached"]
+    _metadata = ["_kline", "_store_signals", "_multi", "_raw", "_cached"]
 
     @property
     def _constructor(self):
@@ -538,6 +574,11 @@ class _Signals(pd.DataFrame):
     def kline(self) -> "Kline":
         """Get underlying kline."""
         return self._kline
+
+    @property
+    def multi(self) -> bool:
+        """Get multi indicator."""
+        return self._multi
 
     @property
     def cached(self) -> bool:
@@ -556,34 +597,37 @@ class _Signals(pd.DataFrame):
         except TypeError:
             pass
 
-    def compute(self, signal: str, *args, **kwargs) -> pd.DataFrame:
-        """Compute a signal."""
-        fun = signal
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            computed_signal = getattr(self, "_compute_signal_" + fun)(
-                self.kline, *args, **kwargs
-            )
-        return computed_signal
-
-    def append(
-        self, computed_signal: pd.DataFrame, signal: str, *args, **kwargs
-    ) -> None:
-        """Append a signal."""
+    @staticmethod
+    def _create_signal_name(signal, *args, **kwargs) -> str:
         kwargs = kwargs.copy()
         kwargs.pop("raw", None)
         str_args = "_" + "_".join([str(_) for _ in args]) if len(args) > 0 else ""
         str_kwargs = (
             "_" + "_".join([str(kwargs[_]) for _ in kwargs]) if len(kwargs) > 0 else ""
         )
-        signal_name = signal + str_args + str_kwargs
-        self.loc[:, signal_name] = computed_signal
+        return signal + str_args + str_kwargs
+
+    def compute(self, signal: str, *args, **kwargs) -> pd.DataFrame:
+        """Compute a signal."""
+        if isinstance(signal, tuple):
+            signal, args = signal
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            computed_signal = getattr(self, "_compute_signal_" + signal)(
+                self.kline, *args, **kwargs
+            )
+        computed_signal.name = self._create_signal_name(signal, *args, **kwargs)
+        return computed_signal
+
+    def append(self, computed_signal: pd.DataFrame) -> None:
+        """Append a signal."""
+        self.loc[:, computed_signal.name] = computed_signal
         return None
 
     def extend(self, signal: str, *args, **kwargs) -> None:
         """Compute and append a signal."""
         computed_signal = self.compute(signal, *args, **kwargs)
-        self.append(computed_signal, signal, *args, **kwargs)
+        self.append(computed_signal)
         return None
 
     @staticmethod
@@ -593,7 +637,7 @@ class _Signals(pd.DataFrame):
         slow_indicator: str = "sma_200",
         buffer: float = 0.0001,
         raw: bool = False,
-    ) -> pd.DataFrame:
+    ) -> pd.Series:
         sl_pct_diff = (
             getattr(kline.indicators, fast_indicator)
             - getattr(kline.indicators, slow_indicator)
@@ -616,7 +660,7 @@ class _Signals(pd.DataFrame):
         repeat: int = 2,
         buffer: float = 0.0001,
         raw: bool = False,
-    ) -> pd.DataFrame:
+    ) -> pd.Series:
         y_diff = getattr(kline.indicators, indicator).pct_change(1)
         index_diff = kline.index.to_series().diff(1)
         seconds_per_step = index_diff.value_counts().index[0].total_seconds()
@@ -640,7 +684,7 @@ class _Signals(pd.DataFrame):
         indicator: str = "sma_50",
         buffer: float = 0.0001,
         raw: bool = False,
-    ) -> pd.DataFrame:
+    ) -> pd.Series:
         price_indicator_pct_diff = (
             kline.close - getattr(kline.indicators, indicator)
         ) / kline.close
@@ -660,7 +704,7 @@ class _Signals(pd.DataFrame):
         slow_window: int = 26,
         buffer: float = 0.0001,
         raw: bool = False,
-    ) -> pd.DataFrame:
+    ) -> pd.Series:
         macd = getattr(kline.indicators, "macd_{}_{}".format(fast_window, slow_window))
         macd_diff = getattr(
             kline.indicators, "macd_diff_{}_{}".format(fast_window, slow_window)
@@ -675,7 +719,7 @@ class _Signals(pd.DataFrame):
     @staticmethod
     def _compute_signal_rsicap(
         kline: "Kline", lower: int = 30, upper: int = 70, raw: bool = False
-    ) -> pd.DataFrame:
+    ) -> pd.Series:
         rsi = getattr(kline.indicators, "rsi")
         if raw:
             return rsi
@@ -686,7 +730,7 @@ class _Signals(pd.DataFrame):
     @staticmethod
     def _compute_signal_adxcap(
         kline: "Kline", threshold: int = 25, buffer: float = 0.0001, raw: bool = False
-    ) -> pd.DataFrame:
+    ) -> pd.Series:
         adx = getattr(kline.indicators, "adx")
         adx_pos = getattr(kline.indicators, "adx_pos")
         adx_neg = getattr(kline.indicators, "adx_neg")
@@ -704,7 +748,7 @@ class _Signals(pd.DataFrame):
         indicator: str = "sma_50",
         threshold: float = 0.04,
         raw: bool = False,
-    ) -> pd.DataFrame:
+    ) -> pd.Series:
         atr = getattr(kline.indicators, "atr")
         indicator = (
             getattr(kline.indicators, indicator)
@@ -720,7 +764,7 @@ class _Signals(pd.DataFrame):
     @staticmethod
     def _compute_signal_bbcross(
         kline: "Kline", threshold: float = 0.98, raw: bool = False
-    ) -> pd.DataFrame:
+    ) -> pd.Series:
         close = getattr(kline, "close")
         hband = getattr(kline.indicators, "bb_hband")
         lband = getattr(kline.indicators, "bb_lband")
@@ -735,7 +779,7 @@ class _Signals(pd.DataFrame):
     @staticmethod
     def _compute_signal_cmfcap(
         kline: "Kline", buffer: float = 0.1, raw: bool = False
-    ) -> pd.DataFrame:
+    ) -> pd.Series:
         cmf = getattr(kline.indicators, "cmf")
         if raw:
             return cmf
@@ -746,7 +790,7 @@ class _Signals(pd.DataFrame):
     @staticmethod
     def _compute_signal_dccross(
         kline: "Kline", threshold: float = 0.98, raw: bool = False
-    ) -> pd.DataFrame:
+    ) -> pd.Series:
         close = getattr(kline, "close")
         hband = getattr(kline.indicators, "dc_hband")
         lband = getattr(kline.indicators, "dc_lband")
@@ -761,7 +805,7 @@ class _Signals(pd.DataFrame):
     @staticmethod
     def _compute_signal_kccross(
         kline: "Kline", threshold: float = 1.0, raw: bool = False
-    ) -> pd.DataFrame:
+    ) -> pd.Series:
         close = getattr(kline, "close")
         hband = getattr(kline.indicators, "kc_hband")
         lband = getattr(kline.indicators, "kc_lband")
@@ -780,7 +824,7 @@ class _Signals(pd.DataFrame):
         upper: int = 80,
         window: int = 14,
         raw: bool = False,
-    ) -> pd.DataFrame:
+    ) -> pd.Series:
         mfi = getattr(kline.indicators, "mfi_{}".format(window))
         if raw:
             return mfi
@@ -794,7 +838,7 @@ class _Signals(pd.DataFrame):
         indicator: Optional[str] = None,
         buffer: float = 0.001,
         raw: bool = False,
-    ) -> pd.DataFrame:
+    ) -> pd.Series:
         psar = getattr(kline.indicators, "psar")
         indicator = (
             getattr(kline.indicators, indicator)
@@ -814,7 +858,7 @@ class _Signals(pd.DataFrame):
     @staticmethod
     def _compute_signal_roccap(
         kline: "Kline", lower: int = -5, upper: int = 5, raw: bool = False
-    ) -> pd.DataFrame:
+    ) -> pd.Series:
         roc = getattr(kline.indicators, "roc")
         if raw:
             return roc
@@ -829,7 +873,7 @@ class _Signals(pd.DataFrame):
         upper: int = 80,
         window: int = 3,
         raw: bool = False,
-    ) -> pd.DataFrame:
+    ) -> pd.Series:
         stoch = getattr(kline.indicators, "stoch_k")
         stoch_rolled = stoch.rolling(
             window
@@ -847,7 +891,7 @@ class _Signals(pd.DataFrame):
         indicator: Optional[str] = None,
         buffer: float = 0.001,
         raw: bool = False,
-    ) -> pd.DataFrame:
+    ) -> pd.Series:
         vwap = getattr(kline.indicators, "vwap_{}".format(window))
         indicator = (
             getattr(kline.indicators, indicator)
@@ -872,12 +916,16 @@ class Signals(_Signals):
     Args:
         kline: Kline from which to get info to compute signals.
         store_signals: Signal names to store in memory.
+        multi: Whether to use multiprocessing or not.
         raw: Whether to work with uncut signals or not.
     """
 
-    def __init__(self, kline: "Kline", store_signals: List, raw: bool = False):
+    def __init__(
+        self, kline: "Kline", store_signals: List, multi: bool = True, raw: bool = False
+    ):
         self._kline = kline
         self._store_signals = store_signals
+        self._multi = multi
         self._raw = raw
         self._cached = False
 
@@ -886,12 +934,22 @@ class Signals(_Signals):
             self._cached = True
             data = pd.DataFrame(data=[], index=self.kline.index)
             super(Signals, self).__init__(data=data)
-            for signal in self.store_signals:
-                try:
-                    fun, args = signal
-                except ValueError:
-                    fun = signal
-                self.extend(fun, *args, raw=self._raw)
+            if not self._multi:
+                for signal_tuple in self.store_signals:
+                    self.extend(signal_tuple, raw=self._raw)
+            else:
+                import multiprocessing as mp
+                from functools import partial
+
+                signal_tuples = self.store_signals
+                with mp.Pool(processes=mp.cpu_count()) as pool:
+                    for computed_signal in pool.map(
+                        func=partial(self.compute, raw=self._raw),
+                        iterable=signal_tuples,
+                        # chunksize=chunksize
+                    ):
+                        self.append(computed_signal)
+
         return super(Signals, self).__getattr__(attr_name)
 
     @property
