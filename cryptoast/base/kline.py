@@ -571,7 +571,7 @@ class _Signals(pd.DataFrame):
     ) -> None:
         """Append a signal."""
         kwargs = kwargs.copy()
-        kwargs = kwargs.pop("raw", None)
+        kwargs.pop("raw", None)
         str_args = "_" + "_".join([str(_) for _ in args]) if len(args) > 0 else ""
         str_kwargs = (
             "_" + "_".join([str(kwargs[_]) for _ in kwargs]) if len(kwargs) > 0 else ""
