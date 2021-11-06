@@ -9,11 +9,12 @@ dependencies:
   - pylint
   - jupyter
   - ipykernel
+  - black
   # - gym
-  - tsfresh
+  # - tsfresh
   - plotly
-  - u8darts
-  - kats
+  - u8darts-all
+  # - kats
   - matplotlib
   - numpy
   - pandas
