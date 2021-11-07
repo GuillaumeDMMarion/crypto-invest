@@ -1,8 +1,8 @@
-The cryptoast library provides functionalities for retrieving, storing, and analyzing data. Potenially it also provides functionalities for taking actions based on this data; Either through inferred signals' thresholds or by using a reinforcement learning layer on top of it.
+The cryptoast library provides functionalities for retrieving, storing, and analyzing data. Potenially it also provides functionalities for taking actions based on this data; Either through inferred signals' thresholds or by using a reinforcement learning model on top of it.
 
 &nbsp;
 
-Api(s) used are:
+Optional third-party apis used are:
 
 -   **BINANCE** for data retrieval and order execution
 -   **AWS** for data storage (optional, local storage can be used)
@@ -33,7 +33,7 @@ A number of packages and subsequent modules are available:
 base.kline.Kline
 ----------------
 
-Object for asset-specific data storage, retrieval, and analysis.
+Object for asset-specific data storage, retrieval, and analysis (through ta indicators and derived signals).
 
 &nbsp;
 
@@ -54,7 +54,7 @@ Management object for all available assets.
 model.agents.Backtest
 ---------------------
 
-In-house backtester, agent-feedable.
+In-house backtester, feedable to a reinforcement-learning agent.
 
 &nbsp;
 
@@ -96,21 +96,21 @@ if kline.signals.iloc[-1, :].eq(1).mean() > .5:
 Notebook examples
 =================
 
+Examples.ipynb
+-----------------------
+Notebook showing cryptoast's core functionalities.
+
+&nbsp;
+
 implementation_rl.ipynb
 -----------------------
-Most rubble-pruned notebook showing mainly: initialization, data update, dummy buy-sell signal computations and rl implementation tryouts.
+Testing notebook showing mainly: initialization, data update, dummy buy-sell signal computations and rl implementation tryouts.
 
 &nbsp;
 
 Exploration.ipynb
 -----------------------
 Exhaustive testing notebook showing amongst other: initialization, data update, single-asset buy-sell signal computation tryouts, multi-asset buy-sell signal computation tryouts, rl implementation tryouts, categorical modeling tryouts, etc.
-
-&nbsp;
-
-Examples.ipynb
------------------------
-Old notebook showing minimal functionalities.
 
 &nbsp;
 
