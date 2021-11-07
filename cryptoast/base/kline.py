@@ -33,6 +33,7 @@ class _Kline(pd.DataFrame):
         "_root_path",
         "_store_indicators",
         "_store_signals",
+        "_raw_signals",
         "_multi",
         "_cached",
         "_info",
@@ -98,6 +99,11 @@ class _Kline(pd.DataFrame):
     def store_signals(self) -> List:
         """Get stored signals list."""
         return self._store_signals
+
+    @property
+    def raw_signals(self) -> bool:
+        """Get raw_signals indicator."""
+        return self._raw_signals
 
     @property
     def multi(self) -> bool:
@@ -324,6 +330,7 @@ class Kline(_Kline):
         root_path: Root path of the stored data.
         store_indicators: List of indicators to store.
         store_signals: List of signals to store.
+        raw_signals: Whether to return raw signals or not.
         multi: Whether to use multiprocessing for computing indicators and signals.
         info: Inherited when initialized from KLMngr.
     """
@@ -336,6 +343,7 @@ class Kline(_Kline):
         root_path: str = "data/",
         store_indicators: Optional[List] = None,
         store_signals: Optional[List] = None,
+        raw_signals: bool = False,
         multi: bool = False,
         info: Optional[pd.Series] = None,
     ):
@@ -348,13 +356,17 @@ class Kline(_Kline):
         self._store_signals = (
             _STORE_SIGNALS_DEFAULT if store_signals is None else store_signals
         )
+        self._raw_signals = raw_signals
         self._multi = multi
         self._cached = False
         self._indicators = Indicators(
             self, store_indicators=self.store_indicators, multi=self.multi
         )
         self._signals = Signals(
-            self, store_signals=self.store_signals, multi=self.multi
+            self,
+            store_signals=self.store_signals,
+            multi=self.multi,
+            raw=self.raw_signals,
         )
         self._info = info
         if data is not None:
@@ -437,11 +449,13 @@ class Kline(_Kline):
         return Kline(
             asset=self.asset,
             data=data,
-            url_scheme=self._url_scheme,
-            root_path=self._root_path,
-            store_indicators=self._store_indicators,
-            store_signals=self._store_signals,
-            info=self._info,
+            url_scheme=self.url_scheme,
+            root_path=self.root_path,
+            store_indicators=self.store_indicators,
+            store_signals=self.store_signals,
+            raw_signals=self.raw_signals,
+            multi=self.multi,
+            info=self.info,
         )
 
 
@@ -504,18 +518,6 @@ class _Indicators(pd.DataFrame):
             df_indicators.columns = rename
         return df_indicators
 
-    def append(self, computed_indicator: pd.DataFrame) -> None:
-        """Append an indicator."""
-        for column in computed_indicator:
-            self.loc[:, column.lower()] = computed_indicator[column]
-        return None
-
-    def extend(self, indicator: str, *args, **kwargs) -> None:
-        """Compute and append an indicator."""
-        computed_indicator = self.compute(indicator, *args, **kwargs)
-        self.append(computed_indicator)
-        return None
-
 
 class Indicators(_Indicators):
     """
@@ -557,6 +559,18 @@ class Indicators(_Indicators):
     def flush(self) -> None:
         """Un-caches data."""
         self._cached = False
+
+    def append(self, computed_indicator: pd.DataFrame) -> None:
+        """Append an indicator."""
+        for column in computed_indicator:
+            self.loc[:, column.lower()] = computed_indicator[column]
+        return None
+
+    def extend(self, indicator: str, *args, **kwargs) -> None:
+        """Compute and append an indicator."""
+        computed_indicator = self.compute(indicator, *args, **kwargs)
+        self.append(computed_indicator)
+        return None
 
 
 class _Signals(pd.DataFrame):
@@ -618,17 +632,6 @@ class _Signals(pd.DataFrame):
             )
         computed_signal.name = self._create_signal_name(signal, *args, **kwargs)
         return computed_signal
-
-    def append(self, computed_signal: pd.DataFrame) -> None:
-        """Append a signal."""
-        self.loc[:, computed_signal.name] = computed_signal
-        return None
-
-    def extend(self, signal: str, *args, **kwargs) -> None:
-        """Compute and append a signal."""
-        computed_signal = self.compute(signal, *args, **kwargs)
-        self.append(computed_signal)
-        return None
 
     @staticmethod
     def _compute_signal_pairedcross(
@@ -973,3 +976,14 @@ class Signals(_Signals):
     def flush(self) -> None:
         """Un-caches data."""
         self._cached = False
+
+    def append(self, computed_signal: pd.DataFrame) -> None:
+        """Append a signal."""
+        self.loc[:, computed_signal.name] = computed_signal
+        return None
+
+    def extend(self, signal: str, *args, **kwargs) -> None:
+        """Compute and append a signal."""
+        computed_signal = self.compute(signal, *args, **kwargs)
+        self.append(computed_signal)
+        return None

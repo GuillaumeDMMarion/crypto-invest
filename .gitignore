@@ -104,9 +104,10 @@ venv.bak/
 .mypy_cache/
 
 # Local stuff
-/documents
-tmp.py
+/notebooks/.darts
 /data-bucket
+/documents
+/models
+tmp.py
 *.backup.*
 *.vscode
-/models

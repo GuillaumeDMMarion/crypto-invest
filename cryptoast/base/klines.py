@@ -129,8 +129,7 @@ class KLMngr(Klines):
         client: Connection client to the crypto exchange.
         url_scheme: Function for the desired url-scheme. Defaults to str.
         root_path: Root path of the stored data.
-        store_indicators: List of indicators to store.
-        store_signals: List of signals to store.
+        kwargs: Any other kwargs to pass to Kline instantiation.
     """
 
     _metadata_path = "metadata/info.csv"
@@ -155,16 +154,15 @@ class KLMngr(Klines):
         client: Optional["binance.client.Client"] = None,
         url_scheme: Callable = str,
         root_path: str = "data/",
-        store_indicators: Optional[List] = None,
-        store_signals: Optional[List] = None,
+        **kwargs
     ):
         self._quotes_or_assets = quotes_or_assets
         self._client = client
         self._url_scheme = url_scheme
         self._root_path = root_path
-        self._store_indicators = store_indicators
-        self._store_signals = store_signals
+        self._kline_kwargs = kwargs
         self._get_info()
+        self._bmpc = None
         if quotes_or_assets is not None:
             self.from_quotes_or_assets(quotes_or_assets)
         elif klines is not None:
@@ -196,6 +194,21 @@ class KLMngr(Klines):
         return self._info
 
     @property
+    def kline_kwargs(self) -> dict:
+        """Get klines kline_kwargs."""
+        return self._kline_kwargs
+
+    @property
+    def bmpc(self) -> pd.DataFrame:
+        """Get klines bull-market-percentage components."""
+        return self._bmpc
+
+    @property
+    def bmp(self) -> pd.Series:
+        """Get klines bmp."""
+        return self._bmpc.mean(axis=1)
+
+    @property
     def assets(self) -> List:
         """Get assets list."""
         return self.sortedkeys()
@@ -222,11 +235,10 @@ class KLMngr(Klines):
         klines = [
             Kline(
                 asset=asset,
-                url_scheme=self._url_scheme,
-                root_path=self._root_path + "data/",
-                store_indicators=self._store_indicators,
-                store_signals=self._store_signals,
+                url_scheme=self.url_scheme,
+                root_path=self.root_path + "data/",
                 info=self.info.loc[asset],
+                **self.kline_kwargs
             )
             for asset in assets
         ]
@@ -252,7 +264,7 @@ class KLMngr(Klines):
             if self.info.loc[asset, "quote"] in quotes_or_assets
         ]
 
-    def get_bmp(self, components: bool = False) -> pd.DataFrame:
+    def compute_bmp(self, components: bool = False) -> pd.DataFrame:
         """
         Args:
             components: Whether or not to return the indiviual components.
@@ -263,28 +275,28 @@ class KLMngr(Klines):
         date_range = pd.date_range(
             "2017-01-01 00:00:00", self.info.last_update.dropna().max(), freq="H"
         )
-        df_bmp = pd.DataFrame(data=[], index=date_range)
+        df_bmpc = pd.DataFrame(data=[], index=date_range)
         assets = self.sortedkeys()
         for asset in assets:
             avg_asset = self[asset].signals.mean(axis=1)
-            df_bmp.loc[avg_asset.index.round("H"), asset] = avg_asset
-        bmp = df_bmp.dropna(axis=0, how="all")
+            df_bmpc.loc[avg_asset.index.round("H"), asset] = avg_asset
+        bmpc = df_bmpc.dropna(axis=0, how="all")
+        self._bmpc = bmpc
         if not components:
-            bmp = bmp.mean(axis=1)
-        return bmp
+            return self.bmpc
+        return self.bmp
 
-    def plot_bmp(
-        self, bmp: Optional[pd.DataFrame] = None, fig: Optional[Figure] = None
-    ) -> Figure:
+    def plot_bmp(self, fig: Optional[Figure] = None) -> Figure:
         """
         Args:
-            bmp: Already compute bull-market percentage.
             fig: Plotly Figure.
 
         Returns:
             Graph of the bull-market percentage for all the initialized assets.
         """
-        bmp = self.get_bmp() if bmp is None else bmp
+        if self.bmpc is None:
+            self.compute_bmp()
+        bmp = self.bmp
         fig = go.Figure() if fig is None else fig
         fig.add_trace(
             go.Scatter(x=bmp.index, y=bmp.values, name="Bull Market Percentage")
@@ -335,8 +347,8 @@ class KLMngr(Klines):
             both_new_and_old, "last_update"
         ]
         setattr(self, "_info", new_info)
-        path_or_buf = self._open(self._root_path + self._metadata_path, mode="w")
-        self._info.to_csv(path_or_buf=path_or_buf, sep=";")
+        path_or_buf = self._open(self.root_path + self._metadata_path, mode="w")
+        self.info.to_csv(path_or_buf=path_or_buf, sep=";")
 
     def update_data(self, verbose: int, sleep: int, retries: int = 5) -> None:
         """Updates for all initialized assets the data and writes it to csv.
@@ -362,14 +374,14 @@ class KLMngr(Klines):
                 if retry == retries:
                     break
             self._info.loc[asset, "last_update"] = self[asset].index[-1]
-            path_or_buf = self._open(self._root_path + self._metadata_path, mode="w")
-            self._info.to_csv(path_or_buf=path_or_buf, sep=";")
+            path_or_buf = self._open(self.root_path + self._metadata_path, mode="w")
+            self.info.to_csv(path_or_buf=path_or_buf, sep=";")
 
     def _get_info(self) -> None:
         """Reads info if it is present. Updates it if not."""
         try:
             filepath_or_buffer = self._open(
-                self._root_path + self._metadata_path, mode="r"
+                self.root_path + self._metadata_path, mode="r"
             )
             self._info = pd.read_csv(
                 filepath_or_buffer=filepath_or_buffer,
@@ -382,7 +394,7 @@ class KLMngr(Klines):
             self.update_info()
 
     def _open(self, path, mode):
-        if self._url_scheme == str:
-            return self._url_scheme(path)
+        if self.url_scheme == str:
+            return self.url_scheme(path)
         else:
-            return self._url_scheme(path, mode)
+            return self.url_scheme(path, mode)
