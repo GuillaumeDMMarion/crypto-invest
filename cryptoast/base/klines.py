@@ -282,7 +282,7 @@ class KLMngr(Klines):
             df_bmpc.loc[avg_asset.index.round("H"), asset] = avg_asset
         bmpc = df_bmpc.dropna(axis=0, how="all")
         self._bmpc = bmpc
-        if not components:
+        if components:
             return self.bmpc
         return self.bmp
 
