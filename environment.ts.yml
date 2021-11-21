@@ -10,7 +10,7 @@ dependencies:
   - jupyter
   - ipykernel
   - black
-  # - gym
+  - gym
   # - tsfresh
   - plotly
   - u8darts-all
