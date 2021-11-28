@@ -98,6 +98,14 @@ class Klines(dict):
             reindexes = [getattr(reindex, fill)() for reindex in reindexes]
         return Klines(reindexes)
 
+    def daily(self) -> "Klines":
+        """
+        Returns:
+            A daily (collection of) Kline oject(s).
+        """
+        dailies = [v.daily for k, v in self.items()]
+        return Klines(dailies)
+
     def select(self, names: List, method: str = "quote") -> "Kline":
         """
         Args:
