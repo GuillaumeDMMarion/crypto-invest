@@ -7,14 +7,14 @@ dependencies:
   - python=3.7
   - s3fs=0.2.0
   - pylint
+  - black
   - jupyter
   - ipykernel
-  - black
   - gym
-  # - tsfresh
-  - plotly
   # - u8darts-all
+  # - tsfresh
   # - kats
+  - plotly
   - matplotlib
   - numpy
   - pandas
