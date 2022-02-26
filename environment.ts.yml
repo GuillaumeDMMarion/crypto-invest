@@ -23,6 +23,8 @@ dependencies:
   # - libuv>=1.40.0
   # - pytorch>=1.8.0
   # - cudatoolkit>=11.0.0
+  # - torchvision>=0.8.1
+  # - torchaudio>=0.7.0
   - pip
   - pip:
     - python-binance==0.7.5
